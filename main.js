@@ -122,14 +122,91 @@ function createWindow() {
     });
 
     ipcMain.on('start-encode', (event, options) => {
-        const { input, format, codec, preset, audioCodec, crf, audioBitrate, outputSuffix } = options;
+        const {
+            input, format, codec, preset, audioCodec, crf, audioBitrate,
+            outputSuffix, fps, rateMode, bitrate, twoPass,
+            audioTracks, subtitleTracks, chaptersFile, customArgs
+        } = options;
+
         const outputExt = format;
         const suffix = outputSuffix || '_encoded';
         const outputPath = input.replace(/\.[^.]+$/, `${suffix}.${outputExt}`);
 
-        const args = ['-i', input, '-y'];
+        // Construct input arguments
+        const args = ['-i', input];
+        let inputCount = 1;
 
-        // Video codec
+        // Add external audio tracks
+        const externalAudioIdxs = [];
+        if (audioTracks && audioTracks.length > 0) {
+            audioTracks.forEach((track, index) => {
+                if (track.path) {
+                    args.push('-i', track.path);
+                    externalAudioIdxs[index] = inputCount;
+                    inputCount++;
+                }
+            });
+        }
+
+        // Add external subtitle tracks
+        const externalSubtitleIdxs = [];
+        if (subtitleTracks && subtitleTracks.length > 0) {
+            subtitleTracks.forEach((track, index) => {
+                if (track.path) {
+                    args.push('-i', track.path);
+                    externalSubtitleIdxs[index] = inputCount;
+                    inputCount++;
+                }
+            });
+        }
+
+        // Add chapters file
+        let chaptersInputIdx = -1;
+        if (chaptersFile) {
+            args.push('-i', chaptersFile);
+            chaptersInputIdx = inputCount;
+            inputCount++;
+        }
+
+        args.push('-y'); // Overwrite
+
+        // Mapping logic
+        // Map original video (Input 0, Video 0)
+        args.push('-map', '0:v:0');
+
+        // Map audio
+        if (audioCodec === 'none' || (audioTracks && audioTracks.length === 0)) {
+            // No audio from any source
+            args.push('-an');
+        } else {
+            // Loop through audioTracks and map them
+            audioTracks.forEach((track, index) => {
+                if (track.isSource) {
+                    args.push('-map', '0:a:0');
+                } else if (externalAudioIdxs[index] !== undefined) {
+                    args.push('-map', `${externalAudioIdxs[index]}:a`);
+                }
+            });
+        }
+
+        // Map subtitles
+        // Map original subtitles
+        args.push('-map', '0:s?');
+        // Map external subtitles
+        if (subtitleTracks && subtitleTracks.length > 0) {
+            subtitleTracks.forEach((track, index) => {
+                if (externalSubtitleIdxs[index] !== undefined) {
+                    args.push('-map', `${externalSubtitleIdxs[index]}:s`);
+                }
+            });
+        }
+
+        // Chapters mapping
+        if (chaptersInputIdx !== -1) {
+            args.push('-map_metadata', `${chaptersInputIdx}`);
+        }
+
+        // Video settings
         if (codec === 'copy') {
             args.push('-c:v', 'copy');
         } else {
@@ -146,10 +223,8 @@ function createWindow() {
             };
             args.push('-c:v', vCodecMap[codec] || 'libx264');
 
-            // Map presets for different encoders
+            // Presets
             if (codec.includes('nvenc')) {
-                // NVENC presets: p1 (fastest) to p7 (slowest) or legacy slow/medium/fast
-                // We'll try to map common names to p1-p7 for better compatibility
                 const nvencPresets = {
                     'ultrafast': 'p1', 'superfast': 'p2', 'veryfast': 'p3',
                     'faster': 'p4', 'fast': 'p5', 'medium': 'p6', 'slow': 'p7',
@@ -157,43 +232,57 @@ function createWindow() {
                 };
                 args.push('-preset', nvencPresets[preset] || 'p4');
             } else if (codec.includes('amf')) {
-                // AMF uses -quality
                 const amfQuality = {
                     'ultrafast': 'speed', 'superfast': 'speed', 'veryfast': 'speed',
                     'faster': 'speed', 'fast': 'balanced', 'medium': 'balanced',
                     'slow': 'quality', 'slower': 'quality', 'veryslow': 'quality'
                 };
                 args.push('-quality', amfQuality[preset] || 'balanced');
-            } else if (codec.includes('qsv')) {
-                // QSV uses -preset (similar to x264)
-                args.push('-preset', preset);
             } else {
-                // Software encoders (libx264, libx265, vp9)
                 args.push('-preset', preset);
             }
 
-            args.push('-crf', crf.toString());
+            // Rate Control
+            if (rateMode === 'bitrate') {
+                args.push('-b:v', `${bitrate}k`);
+                // For average bitrate, we often want a max bitrate or buffer too, but simplified for now
+            } else {
+                args.push('-crf', crf.toString());
+            }
+
+            // FPS
+            if (fps && fps !== 'source') {
+                args.push('-r', fps);
+            }
         }
 
         // Audio codec
-        if (audioCodec === 'none') {
-            args.push('-an');
-        } else if (audioCodec === 'copy') {
-            args.push('-c:a', 'copy');
+        if (audioCodec !== 'none') {
+            if (audioCodec === 'copy') {
+                args.push('-c:a', 'copy');
+            } else {
+                const aCodecMap = { 'aac': 'aac', 'opus': 'libopus' };
+                args.push('-c:a', aCodecMap[audioCodec] || 'aac');
+                args.push('-b:a', audioBitrate);
+            }
+        }
+
+        // Subtitle codec (default to copy for simplicity, or mov_text/srt based on format)
+        if (format === 'mp4' || format === 'mov') {
+            args.push('-c:s', 'mov_text');
         } else {
-            const aCodecMap = { 'aac': 'aac', 'opus': 'libopus' };
-            args.push('-c:a', aCodecMap[audioCodec] || 'aac');
-            args.push('-b:a', audioBitrate);
+            args.push('-c:s', 'copy'); // MKV handles most subs as copy
+        }
+
+        // Advanced custom args
+        if (customArgs) {
+            const cArgs = customArgs.split(' ').filter(arg => arg.trim() !== '');
+            args.push(...cArgs);
         }
 
         args.push(outputPath);
 
-        // Advanced custom args
-        if (options.customArgs) {
-            const customArgs = options.customArgs.split(' ').filter(arg => arg.trim() !== '');
-            // Insert custom args before output path (at the end but before outputPath)
-            args.splice(args.length - 1, 0, ...customArgs);
-        }
+        console.log('Running FFmpeg with args:', args.join(' '));
 
         currentFfmpegProcess = spawn(FFMPEG_PATH, args);
 
@@ -202,7 +291,6 @@ function createWindow() {
         currentFfmpegProcess.stderr.on('data', (data) => {
             const str = data.toString();
 
-            // Get duration if not already set
             if (!durationInSeconds) {
                 const durMatch = str.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.\d{2}/);
                 if (durMatch) {
@@ -210,7 +298,6 @@ function createWindow() {
                 }
             }
 
-            // Parse progress
             const timeMatch = str.match(/time=(\d{2}):(\d{2}):(\d{2})\.\d{2}/);
             const speedMatch = str.match(/speed=\s*(\d+\.?\d*x)/);
 
@@ -235,6 +322,7 @@ function createWindow() {
             }
         });
     });
+
 
     ipcMain.on('cancel-encode', () => {
         if (currentFfmpegProcess) {

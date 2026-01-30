@@ -1,9 +1,11 @@
 {
   "name": "media-converter",
-  "version": "0.1.0",
-  "description": "this is a test app",
+  "version": "0.2.0",
+  "description": "this is a video toolbox",
   "keywords": [
-    "electron"
+    "electron",
+    "video",
+    "toolbox"
   ],
   "license": "MIT",
   "author": "fax1015",

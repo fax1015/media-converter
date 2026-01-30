@@ -154,68 +154,169 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="settings-grid">
-                            <div class="control-group">
-                                <label for="format-select">Container</label>
-                                <select id="format-select">
-                                    <option value="mp4">MP4</option>
-                                    <option value="mkv">MKV</option>
-                                    <option value="webm">WebM</option>
-                                    <option value="mov">MOV</option>
-                                    <option value="avi">AVI</option>
-                                </select>
+
+                        <div class="settings-tabs">
+                            <button class="tab-btn active" data-tab="video">Video</button>
+                            <button class="tab-btn" data-tab="audio">Audio</button>
+                            <button class="tab-btn" data-tab="subtitles">Subtitles</button>
+                            <button class="tab-btn" data-tab="chapters">Chapters</button>
+                        </div>
+
+                        <!-- Video Tab -->
+                        <div class="tab-content" id="tab-video">
+                            <div class="settings-grid">
+                                <div class="control-group">
+                                    <label for="format-select">Container</label>
+                                    <select id="format-select">
+                                        <option value="mp4">MP4</option>
+                                        <option value="mkv">MKV</option>
+                                        <option value="webm">WebM</option>
+                                        <option value="mov">MOV</option>
+                                        <option value="avi">AVI</option>
+                                    </select>
+                                </div>
+                                <div class="control-group">
+                                    <label for="codec-select">Video Codec</label>
+                                    <select id="codec-select">
+                                        <option value="h264">H.264 (AVC)</option>
+                                        <option value="h265">H.265 (HEVC)</option>
+                                        <option value="vp9">VP9</option>
+                                        <option value="copy">Copy (No Re-encode)</option>
+                                    </select>
+                                </div>
+                                <div class="control-group">
+                                    <label for="fps-select">Framerate (FPS)</label>
+                                    <select id="fps-select">
+                                        <option value="source">Same as source</option>
+                                        <option value="23.976">23.976</option>
+                                        <option value="24">24</option>
+                                        <option value="25">25</option>
+                                        <option value="29.97">29.97</option>
+                                        <option value="30">30</option>
+                                        <option value="50">50</option>
+                                        <option value="59.94">59.94</option>
+                                        <option value="60">60</option>
+                                    </select>
+                                </div>
+                                <div class="control-group">
+                                    <label for="preset-select">Encoder Preset</label>
+                                    <select id="preset-select">
+                                        <option value="ultrafast">Ultra Fast</option>
+                                        <option value="superfast">Super Fast</option>
+                                        <option value="veryfast">Very Fast</option>
+                                        <option value="faster">Faster</option>
+                                        <option value="fast">Fast</option>
+                                        <option value="medium" selected>Medium</option>
+                                        <option value="slow">Slow</option>
+                                        <option value="slower">Slower</option>
+                                        <option value="veryslow">Very Slow</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="control-group">
-                                <label for="codec-select">Video Codec</label>
-                                <select id="codec-select">
-                                    <option value="h264">H.264 (AVC)</option>
-                                    <option value="h265">H.265 (HEVC)</option>
-                                    <option value="vp9">VP9</option>
-                                    <option value="copy">Copy (No Re-encode)</option>
-                                </select>
-                            </div>
-                            <div class="control-group">
-                                <label for="preset-select">Speed Preset</label>
-                                <select id="preset-select">
-                                    <option value="ultrafast">Ultra Fast</option>
-                                    <option value="superfast">Super Fast</option>
-                                    <option value="veryfast">Very Fast</option>
-                                    <option value="faster">Faster</option>
-                                    <option value="fast">Fast</option>
-                                    <option value="medium" selected>Medium</option>
-                                    <option value="slow">Slow</option>
-                                    <option value="slower">Slower</option>
-                                    <option value="veryslow">Very Slow</option>
-                                </select>
-                            </div>
-                            <div class="control-group">
-                                <label for="audio-select">Audio Codec</label>
-                                <select id="audio-select">
-                                    <option value="aac">AAC</option>
-                                    <option value="opus">Opus</option>
-                                    <option value="copy">Copy (No Re-encode)</option>
-                                    <option value="none">No Audio</option>
-                                </select>
+
+                            <div class="rate-control-options">
+                                <label>Content Rate Control</label>
+                                <div class="radio-group">
+                                    <label class="radio-label">
+                                        <input type="radio" name="rate-mode" value="crf" checked> Quality (CRF)
+                                    </label>
+                                    <label class="radio-label">
+                                        <input type="radio" name="rate-mode" value="bitrate"> Avg Bitrate (kbps)
+                                    </label>
+                                </div>
+
+                                <div id="crf-container" class="control-group crf-group">
+                                    <label for="crf-slider">Quality: <span id="crf-value">23</span></label>
+                                    <input type="range" id="crf-slider" min="0" max="51" value="23">
+                                    <div class="crf-labels">
+                                        <span>Placebo Quality</span>
+                                        <span>Smaller File</span>
+                                    </div>
+                                </div>
+
+                                <div id="bitrate-container" class="control-group hidden">
+                                    <div class="settings-split">
+                                        <div class="control-group">
+                                            <input type="text" id="v-bitrate" placeholder="2500" value="2500">
+                                        </div>
+                                        <label class="checkbox-label" style="padding: 0;">
+                                            <span>2-Pass Encoding</span>
+                                            <input type="checkbox" id="two-pass">
+                                        </label>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div class="control-group crf-group">
-                            <label for="crf-slider">Quality (CRF): <span id="crf-value">23</span></label>
-                            <input type="range" id="crf-slider" min="0" max="51" value="23">
-                            <div class="crf-labels">
-                                <span>Lossless</span>
-                                <span>Smaller File</span>
+
+                        <!-- Audio Tab -->
+                        <div class="tab-content hidden" id="tab-audio">
+                            <div class="settings-grid">
+                                <div class="control-group">
+                                    <label for="audio-select">Audio Codec</label>
+                                    <select id="audio-select">
+                                        <option value="aac">AAC</option>
+                                        <option value="opus">Opus</option>
+                                        <option value="copy">Copy (No Re-encode)</option>
+                                    </select>
+                                </div>
+                                <div class="control-group">
+                                    <label for="audio-bitrate">Audio Bitrate</label>
+                                    <select id="audio-bitrate">
+                                        <option value="128k">128 kbps</option>
+                                        <option value="192k" selected>192 kbps</option>
+                                        <option value="256k">256 kbps</option>
+                                        <option value="320k">320 kbps</option>
+                                    </select>
+                                </div>
                             </div>
+                            <div class="track-list" id="audio-track-list">
+                                <!-- Audio tracks will be listed here -->
+                            </div>
+                            <button id="add-audio-btn" class="secondary-btn add-btn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                Add Audio Track
+                            </button>
                         </div>
-                        <div class="control-group">
-                            <label for="audio-bitrate">Audio Bitrate</label>
-                            <select id="audio-bitrate">
-                                <option value="128k">128 kbps</option>
-                                <option value="192k" selected>192 kbps</option>
-                                <option value="256k">256 kbps</option>
-                                <option value="320k">320 kbps</option>
-                            </select>
+
+                        <!-- Subtitles Tab -->
+                        <div class="tab-content hidden" id="tab-subtitles">
+                            <div class="track-list" id="subtitle-track-list">
+                                <!-- Subtitle tracks will be listed here -->
+                            </div>
+                            <button id="add-subtitle-btn" class="secondary-btn add-btn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                </svg>
+                                Add Subtitle Track
+                            </button>
+                        </div>
+
+                        <!-- Chapters Tab -->
+                        <div class="tab-content hidden" id="tab-chapters">
+                            <div id="chapter-import-zone" class="chapter-import">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                    <polyline points="14 2 14 8 20 8"></polyline>
+                                </svg>
+                                <p>Click to import chapters from file (.txt, .xml)</p>
+                            </div>
+                            <div id="chapters-info" class="help-text hidden"
+                                style="margin-top: 12px; text-align: center;">
+                                Chapters file loaded: <span id="chapters-filename"
+                                    style="color: var(--text-primary);"></span>
+                                <button id="remove-chapters-btn" class="text-btn"
+                                    style="color: var(--error); margin: 8px auto;">Remove</button>
+                            </div>
                         </div>
                     </div>
+
 
                     <!-- Advanced Section -->
                     <div class="advanced-section-toggle">
@@ -394,7 +495,7 @@
                         <section class="settings-section about-section">
                             <h4 class="panel-title">About</h4>
                             <div class="about-content">
-                                <p><strong>Video Toolbox</strong> v0.1.0</p>
+                                <p><strong>Video Toolbox</strong> v0.2.0</p>
                                 <p>a simple video converter</p>
                                 <div class="credits">
                                     <span>by fax1015</span>

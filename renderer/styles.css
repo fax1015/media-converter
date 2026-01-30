@@ -513,6 +513,7 @@ h4,
     font-weight: 500;
     color: var(--text-secondary);
     margin-bottom: 8px;
+    margin-top: 8px;
 }
 
 select {
@@ -948,7 +949,13 @@ input[type="range"]:disabled::-webkit-slider-thumb {
 .complete-actions {
     display: flex;
     gap: 12px;
-    margin-bottom: 16px;
+    margin-bottom: 24px;
+}
+
+#new-encode-btn {
+    margin: 0 auto;
+    width: fit-content;
+    min-width: 200px;
 }
 
 .action-btn {
@@ -1446,4 +1453,190 @@ input[type="text"]:focus {
     align-items: center;
     gap: 16px;
     width: 100%;
+}
+
+/* --- Handbrake Style Tabs --- */
+.settings-tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 1px;
+}
+
+.tab-btn {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 8px 16px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition);
+    border-radius: var(--border-radius-sm) var(--border-radius-sm) 0 0;
+    position: relative;
+    text-align: center;
+}
+
+.tab-btn:hover {
+    color: var(--text-secondary);
+    background: var(--bg-hover);
+}
+
+.tab-btn.active {
+    color: var(--accent-primary);
+    background: rgba(99, 241, 189, 0.05);
+}
+
+.tab-btn.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--accent-primary);
+}
+
+.tab-content.hidden {
+    display: none !important;
+}
+
+/* --- Form Controls for Tabs --- */
+.settings-row {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.settings-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+/* Rate Control Toggle */
+.rate-control-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+    background: var(--bg-tertiary);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+}
+
+.radio-group {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 8px;
+}
+
+.radio-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.radio-label input[type="radio"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border-color);
+    border-radius: 50%;
+    outline: none;
+    cursor: pointer;
+    position: relative;
+    transition: all var(--transition);
+}
+
+.radio-label input[type="radio"]:checked {
+    border-color: var(--accent-primary);
+}
+
+.radio-label input[type="radio"]:checked::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 8px;
+    height: 8px;
+    background: var(--accent-primary);
+    border-radius: 50%;
+}
+
+/* Track Lists */
+.track-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.track-item {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.track-item-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.track-title {
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.track-meta {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.remove-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all var(--transition);
+}
+
+.remove-btn:hover {
+    color: var(--error);
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.add-btn {
+    margin-top: 12px;
+    width: 100%;
+}
+
+/* Chapters */
+.chapter-import {
+    margin-top: 12px;
+    padding: 20px;
+    border: 2px dashed var(--border-color);
+    border-radius: var(--border-radius);
+    text-align: center;
+    color: var(--text-muted);
+    cursor: pointer;
+}
+
+.chapter-import:hover {
+    border-color: var(--accent-primary);
+    color: var(--text-secondary);
 }

@@ -101,6 +101,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const customPresetsList = get('custom-presets-list');
     const savePresetBtn = get('save-preset-btn');
 
+    // --- New Controls ---
+    const fpsSelect = get('fps-select');
+    const vBitrateInput = get('v-bitrate');
+    const twoPassCheckbox = get('two-pass');
+    const crfContainer = get('crf-container');
+    const bitrateContainer = get('bitrate-container');
+    const addAudioBtn = get('add-audio-btn');
+    const audioTrackList = get('audio-track-list');
+    const addSubtitleBtn = get('add-subtitle-btn');
+    const subtitleTrackList = get('subtitle-track-list');
+    const chapterImportZone = get('chapter-import-zone');
+    const chaptersInfo = get('chapters-info');
+    const chaptersFilename = get('chapters-filename');
+    const removeChaptersBtn = get('remove-chapters-btn');
+
+    let audioTracks = [];
+    let subtitleTracks = [];
+    let chaptersFile = null;
+
     let currentFilePath = null;
     let currentOutputPath = null;
     let isEncoding = false;
@@ -219,6 +238,134 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleAdvancedBtn.addEventListener('click', () => {
             advancedPanel.classList.toggle('hidden');
             toggleAdvancedBtn.querySelector('svg').style.transform = advancedPanel.classList.contains('hidden') ? 'rotate(0deg)' : 'rotate(180deg)';
+        });
+    }
+
+    // --- Tab Logic ---
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const tabName = btn.dataset.tab;
+            tabButtons.forEach(b => b.classList.toggle('active', b === btn));
+            tabContents.forEach(c => c.classList.toggle('hidden', c.id !== `tab-${tabName}`));
+        });
+    });
+
+    // --- Rate Control Toggle ---
+    const rateModeRadios = document.querySelectorAll('input[name="rate-mode"]');
+    if (rateModeRadios) {
+        rateModeRadios.forEach(radio => {
+            radio.addEventListener('change', () => {
+                const mode = radio.value;
+                if (crfContainer) crfContainer.classList.toggle('hidden', mode !== 'crf');
+                if (bitrateContainer) bitrateContainer.classList.toggle('hidden', mode !== 'bitrate');
+            });
+        });
+    }
+
+    // --- Audio Tracks ---
+    if (addAudioBtn) {
+        addAudioBtn.addEventListener('click', async () => {
+            const path = await electron.selectFile();
+            if (path) {
+                audioTracks.push({ path, name: path.split(/[\\/]/).pop() });
+                renderAudioTracks();
+            }
+        });
+    }
+
+    window.removeAudioTrack = (index) => {
+        audioTracks.splice(index, 1);
+        renderAudioTracks();
+    };
+
+    function renderAudioTracks() {
+        if (!audioTrackList) return;
+
+        if (audioTracks.length === 0) {
+            audioTrackList.innerHTML = `
+                <div class="empty-state-small">
+                    <p style="color: var(--error); font-size: 0.8rem; margin: 10px 0; text-align: center;">
+                        ⚠️ All audio tracks removed. Output will have no audio.
+                    </p>
+                </div>
+            `;
+            if (audioSelect) audioSelect.disabled = true;
+            if (audioBitrateSelect) audioBitrateSelect.disabled = true;
+        } else {
+            audioTrackList.innerHTML = audioTracks.map((track, index) => `
+                <div class="track-item">
+                    <div class="track-item-info">
+                        <span class="track-title">${track.name}</span>
+                        <span class="track-meta">${track.isSource ? 'Original Track' : 'External Audio'}</span>
+                    </div>
+                    <button class="remove-btn" onclick="window.removeAudioTrack(${index})">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+            `).join('');
+            if (audioSelect) audioSelect.disabled = false;
+            if (audioBitrateSelect) audioBitrateSelect.disabled = false;
+        }
+    }
+
+    // --- Subtitle Tracks ---
+    if (addSubtitleBtn) {
+        addSubtitleBtn.addEventListener('click', async () => {
+            const path = await electron.selectFile();
+            if (path) {
+                subtitleTracks.push({ path, name: path.split(/[\\/]/).pop() });
+                renderSubtitleTracks();
+            }
+        });
+    }
+
+    window.removeSubtitleTrack = (index) => {
+        subtitleTracks.splice(index, 1);
+        renderSubtitleTracks();
+    };
+
+    function renderSubtitleTracks() {
+        if (!subtitleTrackList) return;
+        subtitleTrackList.innerHTML = subtitleTracks.map((track, index) => `
+            <div class="track-item">
+                <div class="track-item-info">
+                    <span class="track-title">${track.name}</span>
+                    <span class="track-meta">External Subtitle</span>
+                </div>
+                <button class="remove-btn" onclick="window.removeSubtitleTrack(${index})">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+        `).join('');
+    }
+
+    // --- Chapters ---
+    if (chapterImportZone) {
+        chapterImportZone.addEventListener('click', async () => {
+            const path = await electron.selectFile();
+            if (path) {
+                chaptersFile = path;
+                if (chaptersFilename) chaptersFilename.textContent = path.split(/[\\/]/).pop();
+                if (chaptersInfo) chaptersInfo.classList.remove('hidden');
+                if (chapterImportZone) chapterImportZone.classList.add('hidden');
+            }
+        });
+    }
+
+    if (removeChaptersBtn) {
+        removeChaptersBtn.addEventListener('click', () => {
+            chaptersFile = null;
+            if (chaptersInfo) chaptersInfo.classList.add('hidden');
+            if (chapterImportZone) chapterImportZone.classList.remove('hidden');
         });
     }
 
@@ -406,6 +553,14 @@ document.addEventListener('DOMContentLoaded', () => {
     async function handleFileSelection(filePath) {
         currentFilePath = filePath;
         currentEditingQueueId = null;
+        audioTracks = [];
+        subtitleTracks = [];
+        chaptersFile = null;
+        renderAudioTracks();
+        renderSubtitleTracks();
+        if (chaptersInfo) chaptersInfo.classList.add('hidden');
+        if (chapterImportZone) chapterImportZone.classList.remove('hidden');
+
         if (addQueueBtn) addQueueBtn.innerHTML = `
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                 <line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -428,6 +583,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (resolutionEl) resolutionEl.textContent = metadata.resolution;
             if (durationEl) durationEl.textContent = metadata.duration;
             if (bitrateEl) bitrateEl.textContent = metadata.bitrate;
+
+            // Add source audio track if metadata suggests it exists or as a placeholder
+            // Note: FFmpeg metadata might not explicitly say 'hasAudio' in the simple JSON we return, 
+            // but we'll add it by default and the user can remove it.
+            audioTracks = [{ isSource: true, name: 'Source Audio' }];
+            renderAudioTracks();
 
             // Only apply default format if not editing an existing item (handled in loadQueueItemToDashboard)
             if (formatSelect && !currentEditingQueueId) {
@@ -462,21 +623,33 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function getOptionsFromUI() {
+        const rateMode = document.querySelector('input[name="rate-mode"]:checked')?.value || 'crf';
+        return {
+            input: currentFilePath,
+            format: formatSelect ? formatSelect.value : appSettings.defaultFormat,
+            codec: getEffectiveCodec(),
+            preset: presetSelect ? presetSelect.value : 'medium',
+            fps: fpsSelect ? fpsSelect.value : 'source',
+            rateMode: rateMode,
+            crf: crfSlider ? parseInt(crfSlider.value) : 23,
+            bitrate: vBitrateInput ? vBitrateInput.value : '2500',
+            twoPass: twoPassCheckbox ? twoPassCheckbox.checked : false,
+            audioCodec: audioSelect ? audioSelect.value : 'aac',
+            audioBitrate: audioBitrateSelect ? audioBitrateSelect.value : '192k',
+            audioTracks: [...audioTracks],
+            subtitleTracks: [...subtitleTracks],
+            chaptersFile: chaptersFile,
+            outputSuffix: appSettings.outputSuffix,
+            customArgs: customFfmpegArgs ? customFfmpegArgs.value : ''
+        };
+    }
+
     if (convertBtn) {
         convertBtn.addEventListener('click', () => {
             if (!currentFilePath) return;
 
-            const options = {
-                input: currentFilePath,
-                format: formatSelect ? formatSelect.value : appSettings.defaultFormat,
-                codec: getEffectiveCodec(),
-                preset: presetSelect ? presetSelect.value : 'medium',
-                audioCodec: audioSelect ? audioSelect.value : 'aac',
-                crf: crfSlider ? parseInt(crfSlider.value) : 23,
-                audioBitrate: audioBitrateSelect ? audioBitrateSelect.value : '192k',
-                outputSuffix: appSettings.outputSuffix,
-                customArgs: customFfmpegArgs ? customFfmpegArgs.value : ''
-            };
+            const options = getOptionsFromUI();
 
             if (progressFilename) progressFilename.textContent = currentFilePath.split(/[\\/]/).pop();
             resetProgress();
@@ -508,16 +681,8 @@ document.addEventListener('DOMContentLoaded', () => {
         addQueueBtn.addEventListener('click', () => {
             if (!currentFilePath) return;
 
-            const options = {
-                input: currentFilePath,
-                format: formatSelect ? formatSelect.value : appSettings.defaultFormat,
-                codec: getEffectiveCodec(),
-                preset: presetSelect ? presetSelect.value : 'medium',
-                audioCodec: audioSelect ? audioSelect.value : 'aac',
-                crf: crfSlider ? parseInt(crfSlider.value) : 23,
-                audioBitrate: audioBitrateSelect ? audioBitrateSelect.value : '192k',
-                outputSuffix: appSettings.outputSuffix
-            };
+            const options = getOptionsFromUI();
+
 
             if (currentEditingQueueId) {
                 updateQueueItem(currentEditingQueueId, options);
@@ -580,6 +745,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (audioBitrateSelect) audioBitrateSelect.value = item.options.audioBitrate;
 
+        // Restore tracks
+        audioTracks = item.options.audioTracks ? [...item.options.audioTracks] : [];
+        subtitleTracks = item.options.subtitleTracks ? [...item.options.subtitleTracks] : [];
+        chaptersFile = item.options.chaptersFile || null;
+
+        renderAudioTracks();
+        renderSubtitleTracks();
+
+        if (chaptersFile) {
+            if (chaptersFilename) chaptersFilename.textContent = chaptersFile.split(/[\\/]/).pop();
+            if (chaptersInfo) chaptersInfo.classList.remove('hidden');
+            if (chapterImportZone) chapterImportZone.classList.add('hidden');
+        } else {
+            if (chaptersInfo) chaptersInfo.classList.add('hidden');
+            if (chapterImportZone) chapterImportZone.classList.remove('hidden');
+        }
+
         if (addQueueBtn) addQueueBtn.innerHTML = `
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                 <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
@@ -605,17 +787,8 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const filePath = await electron.selectFile();
                 if (filePath) {
-                    const options = {
-                        input: filePath,
-                        format: formatSelect ? formatSelect.value : appSettings.defaultFormat,
-                        codec: getEffectiveCodec(),
-                        preset: presetSelect ? presetSelect.value : 'medium',
-                        audioCodec: audioSelect ? audioSelect.value : 'aac',
-                        crf: crfSlider ? parseInt(crfSlider.value) : 23,
-                        audioBitrate: audioBitrateSelect ? audioBitrateSelect.value : '192k',
-                        outputSuffix: appSettings.outputSuffix,
-                        customArgs: customFfmpegArgs ? customFfmpegArgs.value : ''
-                    };
+                    const options = getOptionsFromUI();
+                    options.input = filePath; // Override with the selected file
                     addToQueue(options);
                 }
             } catch (err) {
@@ -699,10 +872,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (formatSelect) formatSelect.value = settings.format;
         if (codecSelect) codecSelect.value = settings.codec;
         if (presetSelect) presetSelect.value = settings.preset;
-        if (crfSlider) {
-            crfSlider.value = settings.crf;
-            if (crfValue) crfValue.textContent = settings.crf;
+        if (fpsSelect && settings.fps) fpsSelect.value = settings.fps;
+
+        if (settings.rateMode) {
+            const radio = document.querySelector(`input[name="rate-mode"][value="${settings.rateMode}"]`);
+            if (radio) {
+                radio.checked = true;
+                radio.dispatchEvent(new Event('change'));
+            }
         }
+
+        if (crfSlider) {
+            crfSlider.value = settings.crf || 23;
+            if (crfValue) crfValue.textContent = crfSlider.value;
+        }
+
+        if (vBitrateInput && settings.bitrate) vBitrateInput.value = settings.bitrate;
+        if (twoPassCheckbox) twoPassCheckbox.checked = settings.twoPass || false;
+
         if (audioSelect) audioSelect.value = settings.audioCodec;
         if (audioBitrateSelect) audioBitrateSelect.value = settings.audioBitrate;
         if (currentPresetName) currentPresetName.textContent = name;
