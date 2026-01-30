@@ -1,5 +1,2 @@
-# Video Toolbox
-
-little ffmpeg wrapper
-(its electron based sorry)
-
+# media converter
+little shitty ffmpeg wrapper 
