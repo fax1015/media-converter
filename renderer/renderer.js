@@ -173,6 +173,56 @@ document.addEventListener('DOMContentLoaded', () => {
     const trimmedDurationEl = get('trimmed-duration');
     const estimatedFileSizeEl = get('estimated-file-size');
 
+    // --- Custom Popup Functions ---
+    const popupOverlay = get('popup-overlay');
+    const popupMessage = get('popup-message');
+    const popupButtons = get('popup-buttons');
+    const popupOkBtn = get('popup-ok-btn');
+
+    /**
+     * Show a styled popup alert (replaces alert())
+     * @param {string} message - Message to display
+     * @returns {Promise} - Resolves when user clicks OK
+     */
+    function showPopup(message) {
+        return new Promise((resolve) => {
+            popupMessage.textContent = message;
+            popupButtons.innerHTML = '<button id="popup-ok-btn" class="primary-btn popup-btn">OK</button>';
+            popupOverlay.classList.remove('hidden', 'closing');
+            const okBtn = get('popup-ok-btn');
+            okBtn.onclick = () => {
+                popupOverlay.classList.add('hidden');
+                resolve();
+            };
+            okBtn.focus();
+        });
+    }
+
+    /**
+     * Show a styled confirm dialog (replaces confirm())
+     * @param {string} message - Message to display
+     * @returns {Promise<boolean>} - Resolves true if confirmed, false if cancelled
+     */
+    function showConfirm(message) {
+        return new Promise((resolve) => {
+            popupMessage.textContent = message;
+            popupButtons.innerHTML = `
+                <button id="popup-cancel-btn" class="secondary-btn popup-btn">Cancel</button>
+                <button id="popup-confirm-btn" class="primary-btn popup-btn">Confirm</button>
+            `;
+            popupOverlay.classList.remove('hidden', 'closing');
+            const confirmBtn = get('popup-confirm-btn');
+            const cancelBtn = get('popup-cancel-btn');
+            const closeWithResult = (result) => {
+                popupOverlay.classList.add('hidden');
+                resolve(result);
+            };
+            confirmBtn.onclick = () => closeWithResult(true);
+            cancelBtn.onclick = () => closeWithResult(false);
+            confirmBtn.focus();
+        });
+    }
+
     // --- Custom Dropdown Implementation ---
     function setupCustomSelects() {
         const selects = document.querySelectorAll('select:not(.replaced)');
@@ -222,6 +272,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         e.stopPropagation();
                         select.selectedIndex = index;
                         triggerText.textContent = option.textContent;
+                        select.dispatchEvent(new Event('change', { bubbles: true }));
                         select.dispatchEvent(new Event('change', { bubbles: true }));
                         container.classList.remove('open');
                         updateActiveState();
@@ -451,8 +502,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
 
-    function resetVideoDefaults() {
-        if (!confirm('Revert encoding settings for this video to defaults?')) return;
+    async function resetVideoDefaults() {
+        const confirmed = await showConfirm('Revert encoding settings for this video to defaults?');
+        if (!confirmed) return;
 
         if (formatSelect) formatSelect.value = appSettings.defaultFormat || 'mp4';
         if (codecSelect) codecSelect.value = 'h264';
@@ -526,8 +578,19 @@ document.addEventListener('DOMContentLoaded', () => {
         document.documentElement.style.setProperty('--accent-glow', color.glow);
     }
 
-    detectHardware();
-    loadSettings();
+    // Defer non-critical initialization to idle time (Electron perf recommendation #4)
+    if (typeof requestIdleCallback !== 'undefined') {
+        requestIdleCallback(() => {
+            detectHardware();
+            loadSettings();
+        });
+    } else {
+        // Fallback for environments without requestIdleCallback
+        setTimeout(() => {
+            detectHardware();
+            loadSettings();
+        }, 0);
+    }
 
 
     const changeElements = [outputSuffixInput, defaultFormatSelect, themeSelectAttr, accentColorSelect, workPrioritySelect, overwriteFilesCheckbox, notifyOnCompleteCheckbox, outputFolderInput, showBlobsCheckbox, cpuThreadsInput];
@@ -1588,7 +1651,7 @@ document.addEventListener('DOMContentLoaded', () => {
         trimAddQueueBtn.addEventListener('click', () => {
             if (!trimFilePath || !trimDurationSeconds) return;
             if (trimDurationSeconds < 1) {
-                alert('Video is too short to trim.');
+                showPopup('Video is too short to trim.');
                 return;
             }
             trimStartSeconds = Math.max(0, timeStringToSeconds(trimStartInput ? trimStartInput.value : '0'));
@@ -1746,11 +1809,11 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const files = await electron.listFiles(folderPath);
             if (files.length === 0) {
-                alert('No video files found in the selected folder.');
+                showPopup('No video files found in the selected folder.');
                 return;
             }
 
-            const confirmAdd = confirm(`Found ${files.length} video files. Add them to queue with current settings?`);
+            const confirmAdd = await showConfirm(`Found ${files.length} video files. Add them to queue with current settings?`);
             if (!confirmAdd) return;
 
             files.forEach(file => {
@@ -2708,7 +2771,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadCustomPresets();
 
     function addToQueue(options, taskType = 'encode') {
-        const id = Date.now();
+        const id = crypto.randomUUID();
         const name = options.input ? options.input.split(/[\\/]/).pop() : 'Unknown';
         encodingQueue.push({
             id,
@@ -2813,7 +2876,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="queue-item ${item.id === currentlyEncodingItemId ? 'active' : ''} ${item.status === 'completed' ? 'completed' : ''}" 
                  data-id="${item.id}" 
                  data-task-type="${item.taskType || 'encode'}"
-                 onclick="window.loadQueueItem(${item.id})">
+                 onclick="window.loadQueueItem('${item.id}')">
                 <div class="queue-item-info">
                     <div class="queue-item-name">${item.name}</div>
                     <div class="queue-item-status">${encodingStatus !== null ? encodingStatus : statusText}</div>
@@ -2823,7 +2886,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="queue-progress-bar" style="width: ${item.progress}%"></div>
                 </div>
                 ` : ''}
-                <button class="queue-item-remove" onclick="event.stopPropagation(); window.removeQueueItem(${item.id})">
+                <button class="queue-item-remove" onclick="event.stopPropagation(); window.removeQueueItem('${item.id}')">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"></line>
                         <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -2836,7 +2899,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.loadQueueItem = (id) => {
         if (isQueueRunning) {
-            alert('Cannot edit queue items while the queue is running.');
+            showPopup('Cannot edit queue items while the queue is running.');
             return;
         }
         const item = encodingQueue.find(i => i.id === id);
@@ -2876,10 +2939,10 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     if (clearQueueBtn) {
-        clearQueueBtn.addEventListener('click', () => {
+        clearQueueBtn.addEventListener('click', async () => {
             if (encodingQueue.length === 0) return;
 
-            const confirmClear = confirm('Are you sure you want to clear all items from the queue?');
+            const confirmClear = await showConfirm('Are you sure you want to clear all items from the queue?');
             if (!confirmClear) return;
 
             if (isQueueRunning) electron.cancelEncode();
@@ -2947,7 +3010,7 @@ document.addEventListener('DOMContentLoaded', () => {
             currentlyEncodingItemId = null;
 
             if (encodingQueue.some(i => i.status === 'completed')) {
-                alert('Queue processing complete!');
+                showPopup('Queue processing complete!');
             }
             updateQueueUI();
             updateQueueStatusUI();
@@ -3031,6 +3094,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (timePosition) timePosition.textContent = data.time;
             if (encodeSpeed) encodeSpeed.textContent = data.speed;
         }
+    });
+
+    electron.onCancelled(() => {
+        showPopup('Encode cancelled.');
     });
 
     electron.onComplete((data) => {
@@ -3299,7 +3366,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (inspectorSaveBtn) {
         inspectorSaveBtn.addEventListener('click', async () => {
             if (!currentInspectorFilePath) {
-                alert('No file loaded');
+                showPopup('No file loaded');
                 return;
             }
 
@@ -3348,7 +3415,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         inspectorSaveBtn.disabled = false;
                     }, 1500);
                 } else {
-                    alert('Failed to save metadata: ' + (result.error || 'Unknown error'));
+                    showPopup('Failed to save metadata: ' + (result.error || 'Unknown error'));
                     inspectorSaveBtn.innerHTML = `
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
@@ -3361,7 +3428,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (e) {
                 console.error('Error saving metadata:', e);
-                alert('Error saving metadata: ' + e.message);
+                showPopup('Error saving metadata: ' + e.message);
                 inspectorSaveBtn.innerHTML = `
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>

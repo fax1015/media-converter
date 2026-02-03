@@ -13,7 +13,6 @@ Menu.setApplicationMenu(null);
 const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
-const os = require('os');
 
 const FFMPEG_PATH = app.isPackaged
     ? path.join(process.resourcesPath, 'bin', 'ffmpeg.exe')
@@ -24,6 +23,8 @@ const FFPROBE_PATH = app.isPackaged
     : path.join(__dirname, 'bin', 'ffprobe.exe');
 
 let currentFfmpegProcess = null;
+let currentOutputPath = null;
+let isCancelling = false;
 
 /**
  * Set process priority for FFmpeg based on user setting
@@ -32,6 +33,9 @@ let currentFfmpegProcess = null;
  */
 function setProcessPriority(process, priority = 'normal') {
     if (!process || !process.pid) return;
+
+    // Lazy-load os module only when needed (Electron perf recommendation #2)
+    const os = require('os');
 
     try {
         const platform = os.platform();
@@ -275,23 +279,23 @@ function createWindow() {
 
             ffmpeg.stderr.on('data', (data) => errorOutput += data.toString());
 
-            ffmpeg.on('close', (code) => {
+            ffmpeg.on('close', async (code) => {
                 if (code === 0) {
-                    // Replace original with temp file
+                    // Replace original with temp file (async to avoid blocking main process)
                     try {
-                        fs.unlinkSync(filePath);
-                        fs.renameSync(tempPath, filePath);
+                        await fs.promises.unlink(filePath);
+                        await fs.promises.rename(tempPath, filePath);
                         resolve({ success: true });
                     } catch (e) {
                         console.error('Error replacing file:', e);
                         // Try to clean up temp file
-                        try { fs.unlinkSync(tempPath); } catch (e2) { }
+                        try { await fs.promises.unlink(tempPath); } catch (e2) { }
                         resolve({ success: false, error: `Failed to replace file: ${e.message}` });
                     }
                 } else {
                     console.error('ffmpeg failed:', errorOutput);
                     // Clean up temp file if it exists
-                    try { fs.unlinkSync(tempPath); } catch (e) { }
+                    try { await fs.promises.unlink(tempPath); } catch (e) { }
                     resolve({ success: false, error: `ffmpeg failed: ${errorOutput}` });
                 }
             });
@@ -574,6 +578,7 @@ function createWindow() {
         // Set process priority based on user setting
         setProcessPriority(currentFfmpegProcess, workPriority || 'normal');
 
+        currentOutputPath = outputPath;
         let durationInSeconds = 0;
 
         currentFfmpegProcess.stderr.on('data', (data) => {
@@ -603,6 +608,12 @@ function createWindow() {
 
         currentFfmpegProcess.on('close', (code) => {
             currentFfmpegProcess = null;
+            currentOutputPath = null;
+            if (isCancelling) {
+                isCancelling = false;
+                event.reply('encode-cancelled');
+                return;
+            }
             if (code === 0) {
                 event.reply('encode-complete', { outputPath });
             } else {
@@ -637,6 +648,7 @@ function createWindow() {
         // Set process priority based on user setting
         setProcessPriority(currentFfmpegProcess, workPriority || 'normal');
 
+        currentOutputPath = outputPath;
         let durationInSeconds = 0;
         currentFfmpegProcess.stderr.on('data', (data) => {
             const str = data.toString();
@@ -660,6 +672,12 @@ function createWindow() {
         });
         currentFfmpegProcess.on('close', (code) => {
             currentFfmpegProcess = null;
+            currentOutputPath = null;
+            if (isCancelling) {
+                isCancelling = false;
+                event.reply('encode-cancelled');
+                return;
+            }
             if (code === 0) {
                 event.reply('encode-complete', { outputPath });
             } else {
@@ -684,6 +702,7 @@ function createWindow() {
         // Set process priority based on user setting
         setProcessPriority(currentFfmpegProcess, workPriority || 'normal');
 
+        currentOutputPath = outputPath;
         let durationInSeconds = end - start;
         currentFfmpegProcess.stderr.on('data', (data) => {
             const str = data.toString();
@@ -699,6 +718,12 @@ function createWindow() {
         });
         currentFfmpegProcess.on('close', (code) => {
             currentFfmpegProcess = null;
+            currentOutputPath = null;
+            if (isCancelling) {
+                isCancelling = false;
+                event.reply('encode-cancelled');
+                return;
+            }
             if (code === 0) {
                 event.reply('encode-complete', { outputPath });
             } else {
@@ -709,7 +734,26 @@ function createWindow() {
 
     ipcMain.on('cancel-encode', () => {
         if (currentFfmpegProcess) {
+            isCancelling = true;
+            // Capture path before kill triggers close handler which clears it
+            const pathToDelete = currentOutputPath;
+
             currentFfmpegProcess.kill();
+            currentFfmpegProcess = null;
+
+            // Delete incomplete output file
+            if (pathToDelete) {
+                // Wait slightly for file lock to release
+                setTimeout(() => {
+                    fs.unlink(pathToDelete, (err) => {
+                        if (err && err.code !== 'ENOENT') {
+                            console.error('Error deleting cancelled output:', err);
+                        } else {
+                            console.log('Deleted cancelled output:', pathToDelete);
+                        }
+                    });
+                }, 500);
+            }
         }
     });
 

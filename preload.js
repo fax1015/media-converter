@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('electron', {
     onProgress: (callback) => ipcRenderer.on('encode-progress', (event, data) => callback(data)),
     onComplete: (callback) => ipcRenderer.on('encode-complete', (event, data) => callback(data)),
     onError: (callback) => ipcRenderer.on('encode-error', (event, data) => callback(data)),
+    onCancelled: (callback) => ipcRenderer.on('encode-cancelled', () => callback()),
     openFile: (filePath) => ipcRenderer.send('open-file', filePath),
     openFolder: (filePath) => ipcRenderer.send('open-folder', filePath),
     openExternal: (url) => ipcRenderer.send('open-external', url),

@@ -854,6 +854,7 @@
                     </button>
                 </div>
                 <div id="settings-view" class="dashboard hidden">
+                    <h2 style="margin-bottom: 4px;">Settings</h2>
                     <div class="settings-grid-large">
                         <section class="settings-section">
                             <h4 class="panel-title">Hardware Support</h4>
@@ -972,7 +973,7 @@
                         <section class="settings-section about-section">
                             <h4 class="panel-title">About</h4>
                             <div class="about-content">
-                                <p><strong>Video Toolbox</strong> v0.3.0</p>
+                                <p><strong>Video Toolbox</strong> v0.4.0</p>
                                 <p>a simple video converter</p>
                                 <div class="credits">
                                     <span>by fax1015</span>
@@ -1031,6 +1032,17 @@
             </main>
         </div>
     </div>
+
+    <!-- Custom Popup Modal -->
+    <div id="popup-overlay" class="popup-overlay hidden">
+        <div class="popup-content">
+            <div class="popup-message" id="popup-message"></div>
+            <div class="popup-buttons" id="popup-buttons">
+                <button id="popup-ok-btn" class="primary-btn popup-btn">OK</button>
+            </div>
+        </div>
+    </div>
+
     <script src="renderer.js"></script>
 </body>
 
