@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld('electron', {
     openFolder: (filePath) => ipcRenderer.send('open-folder', filePath),
     openExternal: (url) => ipcRenderer.send('open-external', url),
     saveMetadata: (options) => ipcRenderer.invoke('save-metadata', options),
-    getVideoInfo: (url) => ipcRenderer.invoke('get-video-info', url),
+    getVideoInfo: (url, options) => ipcRenderer.invoke('get-video-info', url, options),
     downloadVideo: (options) => ipcRenderer.send('download-video', options),
     cancelDownload: () => ipcRenderer.send('cancel-download'),
     onDownloadProgress: (callback) => ipcRenderer.on('download-progress', (event, data) => callback(data)),

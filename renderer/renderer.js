@@ -146,6 +146,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const dlVideoTitle = get('dl-video-title');
     const dlVideoDuration = get('dl-video-duration');
     const dlVideoChannel = get('dl-video-channel');
+    const dlFormatsSection = get('dl-formats-section');
+    const dlFormatsList = get('dl-formats-list');
+    const dlFormatTabs = get('dl-format-tabs');
+    const dlToggleFormatsBtn = get('dl-toggle-formats-btn');
+    const dlFormatsActions = get('dl-formats-actions');
+
+    let currentVideoInfo = null;
+    let currentDownloadUrl = ''; // NEW: Persist URL after input is cleared
+    let selectedFormatId = null;
+    let currentFormatTab = 'video';
+    let isSyncingUI = false; // NEW: Prevent recursive sync loops
+    let isFormatsExpanded = false; // NEW: Collapsible formats list
 
     const revertVideoBtn = get('revert-video-btn');
 
@@ -256,6 +268,39 @@ document.addEventListener('DOMContentLoaded', () => {
             confirmBtn.onclick = () => closeWithResult(true);
             cancelBtn.onclick = () => closeWithResult(false);
             confirmBtn.focus();
+        });
+    }
+
+    /**
+     * Show a choice dialog for playlist download (Video or Audio)
+     * @param {string} title - Playlist Title
+     * @param {number} count - Video Count
+     * @returns {Promise<string|boolean>} - Resolves 'video', 'audio', or false
+     */
+    function showPlaylistConfirm(title, count) {
+        return new Promise((resolve) => {
+            popupMessage.innerHTML = `Found Playlist: <strong>${title}</strong><br>(${count} videos)<br><br>How would you like to download?`;
+            popupButtons.innerHTML = `
+                <button id="popup-cancel-btn" class="secondary-btn popup-btn" style="flex: 0.5;">Cancel</button>
+                <button id="popup-audio-btn" class="primary-btn popup-btn">Audio</button>
+                <button id="popup-video-btn" class="primary-btn popup-btn">Video</button>
+            `;
+            popupOverlay.classList.remove('hidden', 'closing');
+
+            const videoBtn = get('popup-video-btn');
+            const audioBtn = get('popup-audio-btn');
+            const cancelBtn = get('popup-cancel-btn');
+
+            const closeWithResult = (result) => {
+                popupOverlay.classList.add('hidden');
+                resolve(result);
+            };
+
+            videoBtn.onclick = () => closeWithResult('video');
+            audioBtn.onclick = () => closeWithResult('audio');
+            cancelBtn.onclick = () => closeWithResult(false);
+
+            videoBtn.focus();
         });
     }
 
@@ -2930,7 +2975,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function addToQueue(options, taskType = 'encode') {
         const id = crypto.randomUUID();
-        const name = options.input ? options.input.split(/[\\/]/).pop() : 'Unknown';
+        let name = 'Unknown';
+        if (options.input) {
+            if (taskType === 'download') {
+                name = options.input;
+            } else {
+                name = options.input.split(/[\\/]/).pop();
+            }
+        }
         encodingQueue.push({
             id,
             options,
@@ -3012,6 +3064,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function getTaskLabel(item) {
             if (item.taskType === 'trim') return 'Trim';
             if (item.taskType === 'extract') return 'Extract audio';
+            if (item.taskType === 'download') return 'Download';
             return 'Encode';
         }
 
@@ -3032,7 +3085,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             const encodingStatus = item.status === 'encoding'
-                ? (item.taskType === 'trim' ? `Trimming... ${item.progress}%` : item.taskType === 'extract' ? `Extracting... ${item.progress}%` : `Encoding... ${item.progress}%`)
+                ? (item.taskType === 'trim' ? `Trimming... ${item.progress}%` : item.taskType === 'extract' ? `Extracting... ${item.progress}%` : item.taskType === 'download' ? `Downloading... ${item.progress}%` : `Encoding... ${item.progress}%`)
                 : null;
 
             return `
@@ -3069,11 +3122,58 @@ document.addEventListener('DOMContentLoaded', () => {
         if (item && item.status === 'completed') {
             return;
         }
+
+        if (item && item.taskType === 'download') {
+            loadDownloadItemToDashboard(id);
+            return;
+        }
+
         if (item && (item.taskType === 'trim' || item.taskType === 'extract')) {
             return;
         }
         loadQueueItemToDashboard(id);
     };
+
+    async function loadDownloadItemToDashboard(id) {
+        const item = encodingQueue.find(i => i.id === id);
+        if (!item) return;
+
+        currentEditingQueueId = id;
+
+        // Switch view
+        showView(downloaderDashboard);
+
+        // Populate URL
+        if (dlUrlInput) dlUrlInput.value = item.options.url;
+
+        // Fetch info to hydrate UI (this ensures panels are shown correctly)
+        // We use the URL from the item options
+        await processVideoUrl(item.options.url);
+
+        // Override settings with item options
+        if (dlModeSelect) {
+            dlModeSelect.value = item.options.mode;
+            dlModeSelect.dispatchEvent(new Event('change'));
+        }
+        if (dlQualitySelect) dlQualitySelect.value = item.options.quality;
+        if (dlFormatSelect) dlFormatSelect.value = item.options.format;
+        if (dlFpsSelect && item.options.fps) dlFpsSelect.value = item.options.fps;
+        if (dlVideoBitrateSelect && item.options.videoBitrate) dlVideoBitrateSelect.value = item.options.videoBitrate;
+        if (dlVideoCodecSelect && item.options.videoCodec) dlVideoCodecSelect.value = item.options.videoCodec;
+        if (dlAudioFormatSelect && item.options.audioFormat) dlAudioFormatSelect.value = item.options.audioFormat;
+        if (dlAudioBitrateSelect && item.options.audioBitrate) dlAudioBitrateSelect.value = item.options.audioBitrate;
+
+        // Update Button Text
+        if (dlStartBtn) {
+            dlStartBtn.innerHTML = `
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
+                Update Queue Item
+            `;
+        }
+    }
 
     window.removeQueueItem = (id) => {
         const index = encodingQueue.findIndex(item => item.id === id);
@@ -3099,7 +3199,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 toggleSidebar(false);
             }
         }
-    };
+    }
 
     if (clearQueueBtn) {
         clearQueueBtn.addEventListener('click', async () => {
@@ -3199,6 +3299,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (progressFilename) progressFilename.textContent = nextItem.name;
             resetProgress();
             electron.extractAudio(nextItem.options);
+        } else if (nextItem.taskType === 'download') {
+            if (progressTitle) progressTitle.textContent = 'Downloading video...';
+            if (progressFilename) progressFilename.textContent = nextItem.name;
+            resetProgress();
+            electron.downloadVideo(nextItem.options);
         } else {
             if (progressTitle) progressTitle.textContent = 'Encoding in Progress';
             if (progressFilename) progressFilename.textContent = nextItem.name;
@@ -3207,36 +3312,47 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    if (cancelBtn) {
-        cancelBtn.addEventListener('click', () => {
-            const wasQueueRunning = isQueueRunning;
-            isCancelled = true;
+    function cancelCurrentTask() {
+        const wasQueueRunning = isQueueRunning;
+        isCancelled = true;
+
+        // Check task type
+        const currentItem = currentlyEncodingItemId ? encodingQueue.find(i => i.id === currentlyEncodingItemId) : null;
+
+        if (currentItem && currentItem.taskType === 'download') {
+            electron.cancelDownload();
+        } else {
             electron.cancelEncode();
-            isEncoding = false;
-            isQueueRunning = false;
+        }
+
+        isEncoding = false;
+        isQueueRunning = false;
 
 
-            if (wasQueueRunning && currentlyEncodingItemId !== null) {
-                const item = encodingQueue.find(i => i.id === currentlyEncodingItemId);
-                if (item) {
-                    item.status = 'pending';
-                    item.progress = 0;
-                }
+        if (wasQueueRunning && currentlyEncodingItemId !== null) {
+            const item = encodingQueue.find(i => i.id === currentlyEncodingItemId);
+            if (item) {
+                item.status = 'pending';
+                item.progress = 0;
             }
+        }
 
-            currentlyEncodingItemId = null;
-            toggleSidebar(false);
+        currentlyEncodingItemId = null;
+        toggleSidebar(false);
 
-            if (encodingQueue.length > 0) {
-                showView(queueView);
-                resetNav();
-                navQueue.classList.add('active');
-                updateQueueStatusUI();
-                updateQueueUI();
-            } else {
-                showView(dashboard);
-            }
-        });
+        if (encodingQueue.length > 0) {
+            showView(queueView);
+            resetNav();
+            navQueue.classList.add('active');
+            updateQueueStatusUI();
+            updateQueueUI();
+        } else {
+            showView(dashboard);
+        }
+    }
+
+    if (cancelBtn) {
+        cancelBtn.addEventListener('click', cancelCurrentTask);
     }
 
 
@@ -3677,6 +3793,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (dlVideoQualityGroup) dlVideoQualityGroup.classList.toggle('hidden', isAudio);
             if (dlVideoFormatGroup) dlVideoFormatGroup.classList.toggle('hidden', isAudio);
             if (dlFpsGroup) dlFpsGroup.classList.toggle('hidden', isAudio);
+
+            // NEW: Toggle Video Codec Group based on mode
+            const dlVideoCodecGroup = get('dl-video-codec-group');
+            if (dlVideoCodecGroup) dlVideoCodecGroup.classList.toggle('hidden', isAudio);
+
             if (dlAdvancedPanel) {
                 const isCurrentlyHidden = dlAdvancedPanel.classList.contains('hidden');
                 dlAdvancedPanel.classList.toggle('hidden', isAudio);
@@ -3686,8 +3807,114 @@ document.addEventListener('DOMContentLoaded', () => {
                     dlAdvancedPanel.classList.add('container-loaded');
                 }
             }
+
+            // NEW: Sync Format Tabs with Mode
+            const targetTab = isAudio ? 'audio' : 'video';
+            if (currentFormatTab !== targetTab) {
+                currentFormatTab = targetTab;
+                if (dlFormatTabs) {
+                    dlFormatTabs.querySelectorAll('.tab-btn').forEach(btn => {
+                        btn.classList.toggle('active', btn.dataset.tab === targetTab);
+                    });
+                }
+                renderFormats();
+            }
+
+            // Sync card from dropdowns
+            if (!isSyncingUI) syncFormatCardFromDropdowns();
         });
     }
+
+    // NEW: Toggle formats list expanded state
+    if (dlToggleFormatsBtn) {
+        dlToggleFormatsBtn.addEventListener('click', () => {
+            isFormatsExpanded = !isFormatsExpanded;
+            renderFormats();
+        });
+    }
+
+    // NEW: Add listeners for all sync-relevant dropdowns
+    [dlQualitySelect, dlFormatSelect, dlVideoCodecSelect, dlAudioFormatSelect, dlAudioBitrateSelect].forEach(el => {
+        if (el) {
+            el.addEventListener('change', () => {
+                if (!isSyncingUI) syncFormatCardFromDropdowns();
+            });
+        }
+    });
+
+    function syncFormatCardFromDropdowns() {
+        if (!currentVideoInfo || !currentVideoInfo.formats) return;
+
+        const mode = dlModeSelect.value;
+        const quality = dlQualitySelect.value;
+        const format = dlFormatSelect.value;
+        const codec = dlVideoCodecSelect ? dlVideoCodecSelect.value : 'copy';
+        const audioFormat = dlAudioFormatSelect.value;
+        const bitrate = dlAudioBitrateSelect.value.replace('k', '');
+
+        const isAudioTab = currentFormatTab === 'audio';
+        let matchingFormatId = null;
+
+        if (isAudioTab) {
+            const matchingFormat = currentVideoInfo.formats.find(f => {
+                if (f.vcodec !== 'none') return false;
+                let ext = f.ext;
+                if (ext === 'ogg') ext = 'vorbis';
+                if (ext === 'aac') ext = 'm4a';
+                if (ext !== audioFormat) return false;
+                const abr = Math.round(f.abr || f.tbr || 0);
+                return abr.toString() === bitrate;
+            });
+            if (matchingFormat) matchingFormatId = matchingFormat.format_id;
+        } else {
+            const matchingFormat = currentVideoInfo.formats.find(f => {
+                if (f.vcodec === 'none') return false;
+                if (f.ext !== format) return false;
+                if (quality !== 'best' && f.height?.toString() !== quality) return false;
+
+                const v = f.vcodec || '';
+                let fCodec = 'copy';
+                if (v.startsWith('avc') || v.includes('h264')) fCodec = 'h264';
+                else if (v.startsWith('hev') || v.includes('h265')) fCodec = 'h265';
+                else if (v.startsWith('av01') || v.includes('av1')) fCodec = 'av1';
+                else if (v.startsWith('vp9') || v.includes('vp09')) fCodec = 'vp9';
+
+                return codec === 'copy' || fCodec === codec;
+            });
+            if (matchingFormat) matchingFormatId = matchingFormat.format_id;
+        }
+
+        // Apply visual selection
+        selectedFormatId = matchingFormatId;
+        document.querySelectorAll('.format-card').forEach(card => {
+            if (card.dataset.id === matchingFormatId) {
+                card.classList.add('selected');
+                card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            } else {
+                card.classList.remove('selected');
+            }
+        });
+    }
+
+    let currentSingleVideoFileName = null;
+
+    const sanitizeFilename = (str) => {
+        return str
+            .replace(/</g, '＜')
+            .replace(/>/g, '＞')
+            .replace(/:/g, '：')
+            .replace(/"/g, '＂')
+            .replace(/\//g, '／')
+            .replace(/\\/g, '＼')
+            .replace(/\|/g, '｜')
+            .replace(/\?/g, '？')
+            .replace(/\*/g, '＊')
+            .replace(/%/g, '％'); // Escape for yt-dlp template
+    };
+
+
+
+    let currentInfoRequestId = 0;
 
     async function processVideoUrl(url) {
         url = url.trim();
@@ -3695,6 +3922,23 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!url || !/^https?:\/\/.+/.test(url)) {
             return;
         }
+
+        currentDownloadUrl = url; // NEW: Store active URL
+
+        // Clear input field immediately after capture
+        if (dlUrlInput) dlUrlInput.value = '';
+        if (dlPasteBtn) dlPasteBtn.style.display = 'flex';
+
+        // Reset global single video file name
+        window.currentSingleVideoFileName = null;
+
+        const requestId = ++currentInfoRequestId;
+
+        // Hide start button while loading
+        if (dlStartBtn) dlStartBtn.classList.add('hidden');
+
+        // NEW: Reset formats expanded state
+        isFormatsExpanded = false;
 
         // Reset preview
         if (dlVideoTitle) dlVideoTitle.textContent = 'Loading info...';
@@ -3708,6 +3952,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Hide settings panel until info is loaded
         if (dlSettingsPanel) dlSettingsPanel.classList.add('hidden');
+        if (dlFormatsSection) dlFormatsSection.classList.add('hidden');
 
         showView(dlOptionsDashboard);
 
@@ -3723,14 +3968,170 @@ document.addEventListener('DOMContentLoaded', () => {
             dlModeSelect.dispatchEvent(new Event('change'));
         }
 
+        // NEW: Clean up temporary bitrate options
+        if (dlAudioBitrateSelect) {
+            Array.from(dlAudioBitrateSelect.options).forEach(opt => {
+                if (opt.dataset.temporary === 'true') opt.remove();
+            });
+        }
+
         // Hide settings panels until info is loaded
         if (dlSettingsPanel) dlSettingsPanel.classList.add('hidden');
         if (dlAdvancedPanel) dlAdvancedPanel.classList.add('hidden');
 
         // Fetch video info
         try {
-            const info = await window.electron.getVideoInfo(url);
+            const isSoundCloud = url.includes('soundcloud.com');
+            let info = await window.electron.getVideoInfo(url, { disableFlatPlaylist: isSoundCloud });
+
+            // Abort if request is stale (user navigated away or new request started)
+            if (requestId !== currentInfoRequestId) return;
+
+            // Universal metadata cleaner helper
+            const cleanMetadata = (meta) => {
+                if (!meta) return meta;
+                const queueItem = currentEditingQueueId !== null ? encodingQueue.find(i => i.id === currentEditingQueueId) : null;
+
+                // Fix generic titles
+                if (!meta.title || meta.title.toLowerCase() === 'playlist' || meta.title.toLowerCase() === 'track') {
+                    if (queueItem && queueItem.name) {
+                        meta.title = queueItem.name;
+                    } else {
+                        // Extract from URL slug as last resort
+                        try {
+                            const urlObj = new URL(url);
+                            const pathParts = urlObj.pathname.split('/').filter(p => p);
+                            if (pathParts.length > 0) {
+                                let slug = pathParts[pathParts.length - 1].replace(/-/g, ' ');
+                                meta.title = slug.charAt(0).toUpperCase() + slug.slice(1);
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+                }
+
+                // Fix missing thumbnails in edit mode
+                if (!meta.thumbnail && queueItem && queueItem.options && queueItem.options.thumbnail) {
+                    meta.thumbnail = queueItem.options.thumbnail;
+                }
+
+                // Fix missing author in edit mode
+                if ((!meta.channel || meta.channel === 'Unknown') && queueItem && queueItem.options && queueItem.options.channel) {
+                    meta.channel = queueItem.options.channel;
+                }
+
+                return meta;
+            };
+
             if (info && !info.error) {
+                // START PLAYLIST LOGIC
+                if (info.isPlaylist) {
+                    if (currentEditingQueueId !== null) {
+                        // If we are editing a single item but got a playlist result (common on SoundCloud),
+                        // treat the first entry as the single video.
+                        if (info.entries && info.entries.length > 0) {
+                            const entry = info.entries[0];
+                            const queueItem = encodingQueue.find(i => i.id === currentEditingQueueId);
+
+                            // Get best possible thumbnail
+                            let bestThumbnail = entry.thumbnail;
+                            if (!bestThumbnail && entry.thumbnails && entry.thumbnails.length > 0) {
+                                // Try to find highest res or just use the first/last one
+                                bestThumbnail = entry.thumbnails[entry.thumbnails.length - 1].url || entry.thumbnails[0].url;
+                            }
+
+                            // Avoid generic "playlist" titles
+                            let extractedTitle = entry.fulltitle || entry.original_title || entry.title || entry.track;
+                            if (!extractedTitle || extractedTitle.toLowerCase() === 'playlist') {
+                                extractedTitle = queueItem ? queueItem.name : (info.title || 'Unknown Title');
+                            }
+
+                            info = {
+                                isPlaylist: false, // Force false for single track re-fetch
+                                id: entry.id,
+                                title: extractedTitle,
+                                thumbnail: bestThumbnail,
+                                duration: entry.duration_string || (entry.duration ? formatDurationFromSeconds(entry.duration) : '--:--'),
+                                channel: entry.uploader || entry.artist || entry.channel || (entry.user ? entry.user.username : null) || 'Unknown',
+                                extractor: entry.extractor || info.extractor,
+                                isVideo: entry.vcodec !== 'none'
+                            };
+                        } else {
+                            throw new Error('No video information found in playlist.');
+                        }
+                    } else {
+                        const choice = await showPlaylistConfirm(info.title, info.count);
+
+                        // Re-check after prompt in case user navigated away while it was open
+                        if (requestId !== currentInfoRequestId) return;
+
+                        if (choice) {
+                            // Add all to queue
+                            info.entries.forEach((entry, index) => {
+                                // Entry usually has { url, title, id, ... }
+                                if (!entry.url && entry.id) {
+                                    // Reconstruct URL if missing (common with flat-playlist)
+                                    entry.url = `https://www.youtube.com/watch?v=${entry.id}`;
+                                }
+
+                                if (entry.url) {
+                                    // Default to provided title, prioritize rich fields
+                                    let name = entry.fulltitle || entry.original_title || entry.title || entry.track;
+
+                                    if (!name) {
+                                        // Fallback: Try to extract just name from URL if title is missing
+                                        try {
+                                            const urlObj = new URL(entry.url);
+                                            const pathParts = urlObj.pathname.split('/').filter(p => p);
+                                            if (pathParts.length > 0) {
+                                                // Just the track slug
+                                                name = pathParts[pathParts.length - 1]
+                                                    .replace(/-/g, ' ');
+                                                // Capitalize first letter of fallback
+                                                name = name.charAt(0).toUpperCase() + name.slice(1);
+                                            }
+                                        } catch (e) { /* ignore */ }
+                                    }
+
+                                    let finalName = name || `Video ${entry.id}`;
+
+                                    let options = {
+                                        input: finalName,
+                                        fileName: sanitizeFilename(finalName), // Pass explicit filename using global function
+                                        url: entry.url,
+                                        thumbnail: entry.thumbnail || (entry.thumbnails && entry.thumbnails.length > 0 ? entry.thumbnails[entry.thumbnails.length - 1].url : null),
+                                        channel: entry.uploader || entry.artist || entry.channel || (entry.user ? entry.user.username : null) || 'Unknown',
+                                        mode: 'video',
+                                        quality: 'best',
+                                        format: 'mp4',
+                                        audioFormat: 'mp3',
+                                        audioBitrate: '192k'
+                                    };
+
+                                    if (choice === 'audio') {
+                                        options.mode = 'audio';
+                                        options.format = 'mp3'; // Default for audio only
+                                    }
+
+                                    addToQueue(options, 'download');
+                                }
+                            });
+
+                            showPopup(`Added ${info.count} items to queue as ${choice === 'audio' ? 'Audio' : 'Video'}.`);
+                            showView(queueView);
+                            resetNav();
+                            navQueue.classList.add('active');
+                        } else {
+                            // Cancelled playlist add, go back
+                            showView(downloaderDashboard);
+                        }
+                        return; // Stop processing single video logic
+                    }
+                }
+                // END PLAYLIST LOGIC
+
+                // Universal cleanup for single videos too
+                info = cleanMetadata(info);
+
                 // Show settings panel
                 // Show settings panel with bouncy animation
                 if (dlSettingsPanel) {
@@ -3740,8 +4141,36 @@ document.addEventListener('DOMContentLoaded', () => {
                     dlSettingsPanel.classList.add('container-loaded');
                 }
 
+
+
+                // Universal metadata cleanup for single videos (SoundCloud generic names fix)
+                if (!info.title || ['playlist', 'track', 'unknown'].includes(info.title.toLowerCase())) {
+                    const queueItem = currentEditingQueueId !== null ? encodingQueue.find(i => i.id === currentEditingQueueId) : null;
+                    if (queueItem && queueItem.name) {
+                        info.title = queueItem.name;
+                    } else {
+                        // Extract from URL slug as last resort
+                        try {
+                            const urlObj = new URL(url);
+                            const pathParts = urlObj.pathname.split('/').filter(p => p);
+                            if (pathParts.length > 0) {
+                                let slug = pathParts[pathParts.length - 1].replace(/-/g, ' ');
+                                info.title = slug.charAt(0).toUpperCase() + slug.slice(1);
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+                }
+
                 if (dlVideoTitle) {
                     dlVideoTitle.textContent = info.title;
+                    // Force hide placeholder even if no thumbnail (avoids infinite spinner)
+                    if (dlThumbnailPlaceholder && !info.thumbnail) {
+                        dlThumbnailPlaceholder.style.display = 'none';
+                    }
+                    // Store sanitized filename for download
+                    if (info.title) {
+                        window.currentSingleVideoFileName = sanitizeFilename(info.title);
+                    }
                     dlVideoTitle.classList.remove('text-loaded');
                     void dlVideoTitle.offsetWidth; // Trigger reflow
                     dlVideoTitle.classList.add('text-loaded');
@@ -3764,8 +4193,40 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (dlThumbnailPlaceholder) dlThumbnailPlaceholder.style.display = 'none';
                 }
 
+                // Show start button
+                if (dlStartBtn) dlStartBtn.classList.remove('hidden');
+
+                // NEW: Populate formats for detailed selection
+                currentVideoInfo = info;
+                selectedFormatId = null;
+
+                if (dlFormatsSection) {
+                    dlFormatsSection.classList.remove('hidden');
+                    dlFormatsSection.classList.remove('container-loaded');
+                    void dlFormatsSection.offsetWidth;
+                    dlFormatsSection.classList.add('container-loaded');
+
+                    // Initial tab selection
+                    if (info.isVideo === false || (info.extractor && info.extractor.toLowerCase() === 'soundcloud')) {
+                        currentFormatTab = 'audio';
+                        const audioTabBtn = dlFormatTabs.querySelector('[data-tab="audio"]');
+                        if (audioTabBtn) {
+                            dlFormatTabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                            audioTabBtn.classList.add('active');
+                        }
+                    } else {
+                        currentFormatTab = 'video';
+                        const videoTabBtn = dlFormatTabs.querySelector('[data-tab="video"]');
+                        if (videoTabBtn) {
+                            dlFormatTabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                            videoTabBtn.classList.add('active');
+                        }
+                    }
+                    renderFormats();
+                }
+
                 // Handle Audio-Only Sources
-                if (info.isVideo === false) {
+                if (info.isVideo === false || (info.extractor && info.extractor.toLowerCase() === 'soundcloud')) {
                     if (dlModeSelect) {
                         dlModeSelect.value = 'audio';
                         const videoOption = dlModeSelect.querySelector('option[value="video"]');
@@ -3785,11 +4246,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 }
             } else {
-                if (dlVideoTitle) dlVideoTitle.textContent = 'Could not load video info';
+                // Modified Error Handling: Go back to dashboard
+                showPopup(`Error: ${info.error || 'Could not load video info.'}`);
+                showView(downloaderDashboard);
             }
         } catch (err) {
             console.error('Failed to get video info:', err);
-            if (dlVideoTitle) dlVideoTitle.textContent = 'Video URL entered';
+            // Modified Error Handling: Go back to dashboard
+            showPopup(`Error: ${err.message || 'Error loading video info'}`);
+            showView(downloaderDashboard);
         }
     }
 
@@ -3826,13 +4291,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (dlBackBtn) {
         dlBackBtn.addEventListener('click', () => {
-            showView(downloaderDashboard);
+            // NEW: Cancel pending info requests
+            currentInfoRequestId++;
+            clearTimeout(urlInputTimer);
+
+            // Hide any open popups (like playlist confirm)
+            if (popupOverlay) popupOverlay.classList.add('hidden');
+
+            if (currentEditingQueueId !== null && encodingQueue.find(i => i.id === currentEditingQueueId)?.taskType === 'download') {
+                // Cancel Editing
+                currentEditingQueueId = null;
+                if (dlStartBtn) {
+                    dlStartBtn.innerHTML = `
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        Start Download
+                    `;
+                    dlStartBtn.classList.remove('secondary-btn');
+                    dlStartBtn.classList.add('primary-btn');
+                }
+                showView(queueView);
+            } else {
+                // NEW: Clean up temporary bitrate options
+                if (dlAudioBitrateSelect) {
+                    Array.from(dlAudioBitrateSelect.options).forEach(opt => {
+                        if (opt.dataset.temporary === 'true') opt.remove();
+                    });
+                }
+                showView(downloaderDashboard);
+            }
+            currentDownloadUrl = ''; // NEW: Clear active URL on back
         });
     }
 
     if (dlStartBtn) {
         dlStartBtn.addEventListener('click', () => {
-            const url = dlUrlInput.value.trim();
+            const url = currentDownloadUrl || dlUrlInput.value.trim();
             if (!url) {
                 showPopup('Please enter a valid video URL.');
                 return;
@@ -3840,15 +4338,58 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const options = {
                 url: url,
+                fileName: window.currentSingleVideoFileName,
+                thumbnail: (dlThumbnail && dlThumbnail.style.display !== 'none') ? dlThumbnail.src : null,
+                channel: dlVideoChannel ? dlVideoChannel.textContent : 'Unknown',
                 mode: dlModeSelect.value,
                 quality: dlQualitySelect.value,
                 format: dlFormatSelect.value,
+                formatId: selectedFormatId, // NEW: Pass selected format ID
                 fps: dlFpsSelect ? dlFpsSelect.value : 'none',
                 videoBitrate: dlVideoBitrateSelect ? dlVideoBitrateSelect.value : 'none',
                 videoCodec: dlVideoCodecSelect ? dlVideoCodecSelect.value : 'copy',
                 audioFormat: dlAudioFormatSelect.value,
                 audioBitrate: dlAudioBitrateSelect ? dlAudioBitrateSelect.value : '192k'
             };
+
+            // CHECK IF EDITING
+            if (currentEditingQueueId !== null) {
+                const item = encodingQueue.find(i => i.id === currentEditingQueueId);
+                if (item && item.taskType === 'download') {
+                    // Update item
+                    // Preserve fileName if it exists in old options but not new ones
+                    if (item.options.fileName && !options.fileName) {
+                        options.fileName = item.options.fileName;
+                    }
+
+                    item.options = options;
+                    // FIX: Don't overwrite the user-friendly name with the raw URL during update
+                    // item.name = url; 
+
+                    if (item.status === 'failed' || item.status === 'pending') {
+                        item.status = 'pending';
+                        item.progress = 0;
+                        item.error = null;
+                    }
+
+                    // Reset UI
+                    currentEditingQueueId = null;
+                    dlStartBtn.innerHTML = `
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                            stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
+                        </svg>
+                        Start Download
+                    `;
+
+                    showView(queueView);
+                    updateQueueUI();
+                    showPopup('Queue item updated');
+                    return;
+                }
+            }
 
             // Show progress view (separate page)
             showView(dlProgressView);
@@ -3880,7 +4421,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.electron.onDownloadProgress((data) => {
         // data: { percent, speed, eta, size, status }
-        if (data.percent) {
+        if (data.percent !== undefined && data.percent !== null) {
             const percent = parseFloat(data.percent);
             // Update ring: 502 is circumference for r=80
             const offset = 502 - (502 * percent / 100);
@@ -3891,6 +4432,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (data.eta && dlEta) dlEta.textContent = data.eta;
         if (data.size && dlSize) dlSize.textContent = data.size;
         if (data.status && dlStatusText) dlStatusText.textContent = data.status;
+
+        // Queue Support
+        if (isQueueRunning && currentlyEncodingItemId !== null) {
+            const item = encodingQueue.find(i => i.id === currentlyEncodingItemId);
+            if (item && data.percent !== undefined && data.percent !== null) {
+                item.progress = parseFloat(data.percent);
+                renderQueue(true);
+            }
+        }
     });
 
     window.electron.onDownloadComplete((message) => {
@@ -3899,18 +4449,46 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update complete view
         if (dlOutputPath) dlOutputPath.textContent = currentDlOutputPath || 'Output folder';
 
-        // Show complete view
-        showView(dlCompleteView);
-        toggleSidebar(false);
+        if (isQueueRunning && currentlyEncodingItemId !== null) {
+            const item = encodingQueue.find(i => i.id === currentlyEncodingItemId);
+            if (item) {
+                item.status = 'completed';
+                item.progress = 100;
+            }
+            updateQueueUI();
+            // Process next
+            setTimeout(processQueue, 500);
+        } else {
+            // Show complete view
+            showView(dlCompleteView);
+            toggleSidebar(false);
 
-        // Clear URL for next download
-        if (dlUrlInput) dlUrlInput.value = '';
+            // Clear URL for next download
+            if (dlUrlInput) dlUrlInput.value = '';
+            currentDownloadUrl = '';
+        }
     });
 
     window.electron.onDownloadError((error) => {
-        showPopup(`Download Error: ${error.message}`);
-        showView(downloaderDashboard);
-        toggleSidebar(false);
+        if (isQueueRunning && currentlyEncodingItemId !== null) {
+            const item = encodingQueue.find(i => i.id === currentlyEncodingItemId);
+            if (item) {
+                // For queue items, we mark as failed and continue? or stop?
+                // Usually better to pause or stop queue on error to let user retry
+                item.status = 'failed';
+                item.error = error.message;
+            }
+            updateQueueUI();
+            isQueueRunning = false;
+            currentlyEncodingItemId = null;
+            updateQueueStatusUI();
+            toggleSidebar(false);
+            showPopup(`Download Error: ${error.message}`);
+        } else {
+            showPopup(`Download Error: ${error.message}`);
+            showView(downloaderDashboard);
+            toggleSidebar(false);
+        }
     });
 
     // Complete view button handlers
@@ -3934,6 +4512,266 @@ document.addEventListener('DOMContentLoaded', () => {
         dlNewDownloadBtn.addEventListener('click', () => {
             showView(downloaderDashboard);
             currentDlOutputPath = '';
+            currentDownloadUrl = ''; // NEW: Clear active URL
+        });
+    }
+
+    function formatSize(bytes) {
+        if (!bytes) return 'Unknown';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let i = 0;
+        while (bytes >= 1024 && i < units.length - 1) {
+            bytes /= 1024;
+            i++;
+        }
+        return `${bytes.toFixed(1)}${units[i]}`;
+    }
+
+    function checkIsVideoFormat(f) {
+        const hasVideoCodec = f.vcodec && f.vcodec !== 'none';
+        const hasResolution = (f.height || f.width);
+        return !!(hasVideoCodec && hasResolution);
+    }
+
+    function renderFormats() {
+        if (!currentVideoInfo || !currentVideoInfo.formats) return;
+        if (!dlFormatsList) return;
+
+        dlFormatsList.innerHTML = '';
+
+        // If we are in video tab but there are ZERO video formats, and there ARE audio formats, switch to audio tab automatically
+        const hasAnyVideo = currentVideoInfo.formats.some(f => checkIsVideoFormat(f));
+        const hasAnyAudio = currentVideoInfo.formats.some(f => f.acodec && f.acodec !== 'none');
+
+        if (dlFormatTabs) {
+            const videoTabBtn = dlFormatTabs.querySelector('[data-tab="video"]');
+            if (videoTabBtn) {
+                if (!hasAnyVideo) {
+                    videoTabBtn.classList.add('disabled');
+                    videoTabBtn.style.opacity = '0.3';
+                    videoTabBtn.style.pointerEvents = 'none';
+                    videoTabBtn.title = 'No video formats available for this link';
+                } else {
+                    videoTabBtn.classList.remove('disabled');
+                    videoTabBtn.style.opacity = '1';
+                    videoTabBtn.style.pointerEvents = 'auto';
+                    videoTabBtn.title = '';
+                }
+            }
+        }
+
+        if (!hasAnyVideo && hasAnyAudio && currentFormatTab === 'video') {
+            currentFormatTab = 'audio';
+            // Update UI to reflect tab change
+            const tabs = dlFormatTabs ? dlFormatTabs.querySelectorAll('.tab-btn') : [];
+            tabs.forEach(t => {
+                if (t.dataset.tab === 'audio') t.classList.add('active');
+                else t.classList.remove('active');
+            });
+        }
+
+        const formats = currentVideoInfo.formats.filter(f => {
+            const isVideo = checkIsVideoFormat(f);
+            if (currentFormatTab === 'video') {
+                return isVideo;
+            } else {
+                // Audio tab: strictly anything that isn't a robust resolution-based video format
+                // This ensures an audio-only source always shows up here.
+                return !isVideo;
+            }
+        });
+
+        // Dedup and sort
+        const seen = new Set();
+        const uniqueFormats = formats.filter(f => {
+            const vKey = `${f.height || 0}p-${f.ext}-${f.vcodec || 'none'}`;
+            // Use format_id for audio to ensure different streams are distinct
+            const aKey = `${f.format_id || 'default'}-${f.ext}`;
+            const key = currentFormatTab === 'video' ? vKey : aKey;
+
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+
+
+        if (currentFormatTab === 'video') {
+            uniqueFormats.sort((a, b) => (b.height || 0) - (a.height || 0));
+        } else {
+            uniqueFormats.sort((a, b) => (b.abr || 0) - (a.abr || 0));
+        }
+
+        if (uniqueFormats.length === 0) {
+            dlFormatsList.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted);">No formats found for this tab.</div>';
+            if (dlFormatsActions) dlFormatsActions.style.display = 'none';
+            return;
+        }
+
+        const initialShowCount = 4;
+        const formatsToRender = isFormatsExpanded ? uniqueFormats : uniqueFormats.slice(0, initialShowCount);
+
+        formatsToRender.forEach(f => {
+            const card = document.createElement('div');
+            card.className = `format-card ${selectedFormatId === f.format_id ? 'selected' : ''}`;
+            card.dataset.id = f.format_id;
+
+            // Calculate size if not present
+            let size = f.filesize || f.filesize_approx;
+            if (!size && f.tbr && currentVideoInfo.duration) {
+                // duration is formatted "M:SS" or "H:MM:SS", need seconds
+                const parts = currentVideoInfo.duration.split(':').map(Number);
+                let seconds = 0;
+                if (parts.length === 3) seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+                else if (parts.length === 2) seconds = parts[0] * 60 + parts[1];
+
+                size = (f.tbr * 1024 * seconds / 8);
+            }
+
+            const resLabel = f.height ? `${f.height}p` : 'Audio';
+            const bitrateLabel = f.tbr ? `${Math.round(f.tbr)}kbps` : '';
+
+            let codecLabel = 'unknown';
+            if (currentFormatTab === 'video') {
+                const v = f.vcodec || '';
+                if (v.startsWith('avc')) codecLabel = 'H.264';
+                else if (v.startsWith('hev') || v.startsWith('hvc1')) codecLabel = 'H.265';
+                else if (v.startsWith('av01')) codecLabel = 'AV1';
+                else if (v.startsWith('vp9')) codecLabel = 'VP9';
+                else codecLabel = v.split('.')[0].toUpperCase();
+            } else {
+                codecLabel = (f.acodec || 'unknown').split('.')[0].toUpperCase();
+            }
+
+            card.innerHTML = `
+                <div class="format-top">
+                    <span class="format-res">${resLabel}</span>
+                    <span class="format-size">${formatSize(size)}</span>
+                </div>
+                <div class="format-info">
+                    <span class="format-ext">${f.ext}</span>
+                    <div class="format-details">
+                        <span>${codecLabel}</span>
+                        ${bitrateLabel ? `<span class="format-badge">${bitrateLabel}</span>` : ''}
+                        ${f.fps ? `<span class="format-badge">${f.fps}fps</span>` : ''}
+                    </div>
+                </div>
+            `;
+
+            card.onclick = () => {
+                isSyncingUI = true; // NEW: Prevent recursive sync
+                selectedFormatId = f.format_id;
+                document.querySelectorAll('.format-card').forEach(c => c.classList.remove('selected'));
+                card.classList.add('selected');
+
+                // Update resolution dropdown to match if possible (sync with existing UI)
+                if (dlQualitySelect && f.height) {
+                    dlQualitySelect.value = f.height.toString();
+                    dlQualitySelect.dispatchEvent(new Event('change'));
+                }
+
+                // NEW: Ensure mode matches selected format
+                if (dlModeSelect) {
+                    const isVideo = checkIsVideoFormat(f);
+                    const targetMode = isVideo ? 'video' : 'audio';
+                    if (dlModeSelect.value !== targetMode) {
+                        dlModeSelect.value = targetMode;
+                        dlModeSelect.dispatchEvent(new Event('change'));
+                    }
+
+                    // Sync Extension/Container
+                    if (!isAudioRecord && dlFormatSelect) {
+                        // Check if extension is one of the supported ones (mp4, mkv, webm, mov)
+                        const supported = ['mp4', 'mkv', 'webm', 'mov'];
+                        if (supported.includes(f.ext)) {
+                            dlFormatSelect.value = f.ext;
+                            dlFormatSelect.dispatchEvent(new Event('change'));
+                        }
+
+                        // NEW: Sync Video Codec
+                        if (dlVideoCodecSelect) {
+                            const vcodec = f.vcodec || 'unknown';
+                            let targetCodec = 'copy';
+                            if (vcodec.startsWith('avc') || vcodec.includes('h264')) targetCodec = 'h264';
+                            else if (vcodec.startsWith('hev') || vcodec.includes('h265')) targetCodec = 'h265';
+                            else if (vcodec.startsWith('av01') || vcodec.includes('av1')) targetCodec = 'av1';
+                            else if (vcodec.startsWith('vp9') || vcodec.includes('vp09')) targetCodec = 'vp9';
+
+                            dlVideoCodecSelect.value = targetCodec;
+                            dlVideoCodecSelect.dispatchEvent(new Event('change'));
+                        }
+                    } else if (isAudioRecord && dlAudioFormatSelect) {
+                        // Check if extension is one of supported audio (mp3, m4a, opus, vorbis, flac, wav)
+                        const supportedAudio = ['mp3', 'm4a', 'opus', 'vorbis', 'flac', 'wav'];
+                        // Map some common variations
+                        let ext = f.ext;
+                        if (ext === 'ogg') ext = 'vorbis';
+                        if (ext === 'aac') ext = 'm4a';
+
+                        if (supportedAudio.includes(ext)) {
+                            dlAudioFormatSelect.value = ext;
+                            dlAudioFormatSelect.dispatchEvent(new Event('change'));
+                        }
+                    }
+
+                    // Sync Audio Bitrate if available
+                    if (isAudioRecord && dlAudioBitrateSelect) {
+                        const abr = f.abr || f.tbr;
+                        if (abr) {
+                            const bitrateStr = Math.round(abr) + 'k';
+
+                            // Check if exact option exists
+                            let option = Array.from(dlAudioBitrateSelect.options).find(o => o.value === bitrateStr);
+
+                            if (!option) {
+                                // Add temporary option for visual consistency
+                                option = document.createElement('option');
+                                option.value = bitrateStr;
+                                option.textContent = `${Math.round(abr)} kbps (Current)`;
+                                option.dataset.temporary = 'true';
+                                dlAudioBitrateSelect.appendChild(option);
+                            }
+
+                            dlAudioBitrateSelect.value = bitrateStr;
+                            dlAudioBitrateSelect.dispatchEvent(new Event('change'));
+                        }
+                    }
+                }
+                isSyncingUI = false; // NEW: End sync
+            };
+
+            dlFormatsList.appendChild(card);
+        });
+
+        // Update Toggle Button Visibility
+        if (dlFormatsActions && dlToggleFormatsBtn) {
+            if (uniqueFormats.length > initialShowCount) {
+                dlFormatsActions.classList.remove('hidden');
+                dlFormatsActions.style.display = 'flex';
+                dlToggleFormatsBtn.textContent = isFormatsExpanded ? 'Show Less' : `Show All (${uniqueFormats.length} Formats)`;
+            } else {
+                dlFormatsActions.classList.add('hidden');
+                dlFormatsActions.style.display = 'none';
+            }
+        }
+    }
+
+    if (dlFormatTabs) {
+        dlFormatTabs.addEventListener('click', (e) => {
+            const btn = e.target.closest('.tab-btn');
+            if (!btn) return;
+
+            dlFormatTabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            currentFormatTab = btn.dataset.tab;
+
+            // NEW: Automatically switch download mode to match tab
+            if (dlModeSelect) {
+                dlModeSelect.value = currentFormatTab === 'audio' ? 'audio' : 'video';
+                dlModeSelect.dispatchEvent(new Event('change'));
+            }
+
+            renderFormats();
         });
     }
 

@@ -765,7 +765,7 @@ function createWindow() {
     });
 
     // Get video info (title, thumbnail, duration) using yt-dlp
-    ipcMain.handle('get-video-info', async (event, url) => {
+    ipcMain.handle('get-video-info', async (event, url, options = {}) => {
         const YT_DLP_PATH = app.isPackaged
             ? path.join(process.resourcesPath, 'bin', 'yt-dlp.exe')
             : path.join(__dirname, 'bin', 'yt-dlp.exe');
@@ -780,10 +780,17 @@ function createWindow() {
                 '--dump-json',
                 '--no-download',
                 '--no-warnings',
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 url
             ];
 
-            const proc = spawn(YT_DLP_PATH, args);
+            if (!options.disableFlatPlaylist) {
+                args.push('--flat-playlist');
+            }
+
+            const proc = spawn(YT_DLP_PATH, args, {
+                env: { ...process.env, PYTHONIOENCODING: 'utf-8' }
+            });
             let stdout = '';
             let stderr = '';
 
@@ -798,17 +805,70 @@ function createWindow() {
             proc.on('close', (code) => {
                 if (code === 0 && stdout) {
                     try {
-                        const info = JSON.parse(stdout);
-                        resolve({
-                            title: info.title || 'Unknown Title',
-                            thumbnail: info.thumbnail || null,
-                            duration: info.duration ? formatDuration(info.duration) : '--:--',
-                            channel: info.uploader || info.channel || 'Unknown',
-                            isVideo: info.vcodec !== 'none',
-                            url: url
-                        });
+                        // Attempt to parse strictly first
+                        let info;
+                        try {
+                            info = JSON.parse(stdout);
+                        } catch (e) {
+                            // If strict parse fails, try NDJSON (Newlines Delimited JSON)
+                            // This handles cases where yt-dlp outputs multiple lines of JSON
+                            const lines = stdout.trim().split('\n');
+                            if (lines.length > 1) {
+                                // It might be a list of video objects/entries
+                                // We can try to construct a pseudo-playlist object from them
+                                const entries = [];
+                                let firstInfo = null;
+
+                                for (const line of lines) {
+                                    try {
+                                        const entry = JSON.parse(line);
+                                        entries.push(entry);
+                                        if (!firstInfo) firstInfo = entry;
+                                    } catch (lineErr) {
+                                        console.warn('Skipping invalid JSON line:', lineErr);
+                                    }
+                                }
+
+                                if (entries.length > 0) {
+                                    info = {
+                                        _type: 'playlist',
+                                        title: firstInfo.playlist_title || firstInfo.title || 'Unknown Playlist',
+                                        isPlaylist: true,
+                                        count: entries.length,
+                                        entries: entries
+                                    };
+                                } else {
+                                    throw e; // Re-throw original error if no valid lines found
+                                }
+                            } else {
+                                throw e; // Single line but invalid JSON
+                            }
+                        }
+
+                        if (info._type === 'playlist') {
+                            resolve({
+                                isPlaylist: true,
+                                title: info.title || 'Unknown Playlist',
+                                count: info.entries ? info.entries.length : 0,
+                                entries: info.entries || []
+                            });
+                        } else {
+                            resolve({
+                                isPlaylist: false,
+                                title: info.title || 'Unknown Title',
+                                thumbnail: info.thumbnail || null,
+                                duration: info.duration ? formatDuration(info.duration) : '--:--',
+                                channel: info.uploader || info.channel || 'Unknown',
+                                isVideo: info.vcodec !== 'none',
+                                formats: info.formats || [],
+                                url: url
+                            });
+                        }
                     } catch (e) {
-                        resolve({ error: 'Failed to parse video info' });
+                        console.error('JSON parse error:', e);
+                        // Return the first 100 chars of stdout to see what we got
+                        const preview = stdout.trim().substring(0, 100).replace(/\n/g, ' ');
+                        resolve({ error: `Failed to parse video info. Output start: "${preview}..."` });
                     }
                 } else {
                     resolve({ error: stderr || 'Failed to get video info' });
@@ -828,181 +888,278 @@ function createWindow() {
     }
 
     ipcMain.on('download-video', async (event, options) => {
-        const { url, mode, quality, format, audioFormat, audioBitrate, fps, videoBitrate, videoCodec } = options;
+        try {
+            const { url, mode, quality, format, audioFormat, audioBitrate, fps, videoBitrate, videoCodec } = options;
 
-        // Path to yt-dlp executable
-        const YT_DLP_PATH = app.isPackaged
-            ? path.join(process.resourcesPath, 'bin', 'yt-dlp.exe')
-            : path.join(__dirname, 'bin', 'yt-dlp.exe');
+            // Path to bin folder and executables
+            const BIN_PATH = app.isPackaged
+                ? path.join(process.resourcesPath, 'bin')
+                : path.join(__dirname, 'bin');
+            const YT_DLP_PATH = path.join(BIN_PATH, 'yt-dlp.exe');
+            const FFMPEG_PATH = path.join(BIN_PATH, 'ffmpeg.exe');
 
-        // Use default output folder or Downloads
-        const outputFolder = global.userSettings?.outputFolder || app.getPath('downloads');
+            // Use default output folder or Downloads
+            const outputFolder = global.userSettings?.outputFolder || app.getPath('downloads');
 
-        // Ensure yt-dlp exists
-        const fs = require('fs');
-        if (!fs.existsSync(YT_DLP_PATH)) {
-            event.reply('download-error', { message: 'yt-dlp.exe not found in bin folder.' });
-            return;
-        }
-
-        const args = [];
-
-        // Output template
-        const outputTemplate = path.join(outputFolder, '%(title)s.%(ext)s');
-        args.push('-o', outputTemplate);
-
-        // Format selection
-        if (mode === 'audio') {
-            args.push('-x', '--audio-format', audioFormat || 'mp3');
-            if (audioBitrate) {
-                args.push('--audio-quality', audioBitrate);
-            }
-        } else {
-            // Video + Audio
-            if (format === 'mp4') {
-                args.push('--merge-output-format', 'mp4');
-            } else if (format === 'mkv') {
-                args.push('--merge-output-format', 'mkv');
-            } else if (format === 'mov') {
-                args.push('--merge-output-format', 'mov');
-            } else if (format === 'webm') {
-                args.push('--merge-output-format', 'webm');
-            }
-
-            // Quality selection
-            if (quality === 'best') {
-                args.push('-f', 'bestvideo+bestaudio/best');
-            } else {
-                // e.g. height <= 1080
-                args.push('-f', `bestvideo[height<=${quality}]+bestaudio/best[height<=${quality}]/best`);
-            }
-
-            // Post-processing with FFmpeg (if any option is not default)
-            const needsReencode = (fps && fps !== 'none') || (videoBitrate && videoBitrate !== 'none') || (videoCodec && videoCodec !== 'copy');
-
-            if (needsReencode) {
-                const ffmpegArgs = [];
-
-                // Video codec
-                if (videoCodec && videoCodec !== 'copy') {
-                    if (videoCodec === 'h264') {
-                        ffmpegArgs.push('-c:v', 'libx264');
-                    } else if (videoCodec === 'h265') {
-                        ffmpegArgs.push('-c:v', 'libx265');
-                    } else if (videoCodec === 'vp9') {
-                        ffmpegArgs.push('-c:v', 'libvpx-vp9');
-                    } else if (videoCodec === 'av1') {
-                        ffmpegArgs.push('-c:v', 'libaom-av1');
-                    }
-                } else {
-                    ffmpegArgs.push('-c:v', 'copy');
-                }
-
-                // Video bitrate
-                if (videoBitrate && videoBitrate !== 'none') {
-                    ffmpegArgs.push('-b:v', videoBitrate);
-                }
-
-                // FPS limit
-                if (fps && fps !== 'none') {
-                    ffmpegArgs.push('-r', fps);
-                }
-
-                // Audio copy
-                ffmpegArgs.push('-c:a', 'copy');
-
-                if (ffmpegArgs.length > 0) {
-                    args.push('--postprocessor-args', `ffmpeg:${ffmpegArgs.join(' ')}`);
-                }
-            }
-        }
-
-        args.push('--progress');
-        args.push('--newline'); // Important for parsing status
-        args.push(url);
-
-        console.log('Running yt-dlp:', args.join(' '));
-
-        const process = spawn(YT_DLP_PATH, args);
-        let currentDownloadPath = null;
-
-        process.stdout.on('data', (data) => {
-            const str = data.toString();
-            // console.log('yt-dlp stdout:', str);
-
-            // Parse progress
-            const progressMatch = str.match(/\[download\]\s+(\d+\.?\d*)%/);
-            const sizeMatch = str.match(/of\s+(\d+\.?\d*[KMG]iB)/);
-            const speedMatch = str.match(/at\s+(\d+\.?\d*[KMG]iB\/s)/);
-            const etaMatch = str.match(/ETA\s+(\d{2}:\d{2})/);
-
-            const destMatch = str.match(/Destination:\s+(.*)/) || str.match(/Already downloaded:\s+(.*)/);
-            if (destMatch) {
-                currentDownloadPath = destMatch[1];
-            }
-
-            if (str.includes('[Merger]')) {
-                event.reply('download-progress', { status: 'Merging formats...' });
-            }
-            if (str.includes('[ExtractAudio]')) {
-                event.reply('download-progress', { status: 'Extracting audio...' });
-            }
-
-            if (progressMatch) {
-                event.reply('download-progress', {
-                    percent: parseFloat(progressMatch[1]),
-                    size: sizeMatch ? sizeMatch[1] : null,
-                    speed: speedMatch ? speedMatch[1] : null,
-                    eta: etaMatch ? etaMatch[1] : null,
-                    status: 'Downloading...'
-                });
-            }
-        });
-
-        process.stderr.on('data', (data) => {
-            // console.error('yt-dlp stderr:', data.toString());
-        });
-
-        let isCancelled = false;
-
-        const cancelHandler = () => {
-            isCancelled = true;
-            process.kill();
-        };
-
-        ipcMain.on('cancel-download', cancelHandler);
-
-        process.on('close', (code) => {
-            ipcMain.removeListener('cancel-download', cancelHandler);
-
-            if (isCancelled) {
-                // Cleanup with delay
-                setTimeout(() => {
-                    try {
-                        if (currentDownloadPath) {
-                            const potentialFiles = [
-                                currentDownloadPath,
-                                currentDownloadPath + '.part',
-                                currentDownloadPath + '.ytdl'
-                            ];
-
-                            potentialFiles.forEach(file => {
-                                if (fs.existsSync(file)) {
-                                    try { fs.unlinkSync(file); } catch (e) { /* ignore */ }
-                                }
-                            });
-                        }
-                    } catch (e) { console.error(e); }
-                }, 1000);
+            // Ensure yt-dlp exists
+            const fs = require('fs');
+            if (!fs.existsSync(YT_DLP_PATH)) {
+                event.reply('download-error', { message: 'yt-dlp.exe not found in bin folder.' });
                 return;
             }
 
-            if (code === 0) {
-                event.reply('download-complete', { outputPath: currentDownloadPath || outputFolder });
+            const args = [];
+
+            // Output template
+            let outputTemplate;
+            if (options.fileName) {
+                outputTemplate = path.join(outputFolder, options.fileName + '.%(ext)s');
             } else {
-                event.reply('download-error', { message: `yt-dlp exited with code ${code}` });
+                outputTemplate = path.join(outputFolder, '%(title)s.%(ext)s');
             }
-        });
+
+            args.push('-o', outputTemplate);
+            args.push('--no-restrict-filenames'); // Ensure unicode characters are preserved
+
+            if (fs.existsSync(FFMPEG_PATH)) {
+                args.push('--ffmpeg-location', FFMPEG_PATH);
+            }
+
+            // Format selection
+            if (mode === 'audio') {
+                args.push('-x', '--audio-format', audioFormat || 'mp3');
+                if (audioBitrate) {
+                    args.push('--audio-quality', audioBitrate);
+                }
+            } else {
+                // Video + Audio
+                if (format === 'mp4') args.push('--merge-output-format', 'mp4');
+                else if (format === 'mkv') args.push('--merge-output-format', 'mkv');
+                else if (format === 'mov') args.push('--merge-output-format', 'mov');
+                else if (format === 'webm') args.push('--merge-output-format', 'webm');
+
+                // Quality selection
+                if (options.formatId) {
+                    // If a specific format ID is selected, use it.
+                    // For video, we try to append +bestaudio if it's likely a video-only format
+                    if (mode === 'video' && !options.formatId.includes('+')) {
+                        args.push('-f', `${options.formatId}+bestaudio/best`);
+                    } else {
+                        args.push('-f', options.formatId);
+                    }
+                } else if (quality === 'best') {
+                    args.push('-f', 'bestvideo+bestaudio/best');
+                } else {
+                    // e.g. height <= 1080
+                    args.push('-f', `bestvideo[height<=${quality}]+bestaudio/best[height<=${quality}]/best`);
+                }
+
+                // Post-processing with FFmpeg (if any option is not default)
+                const needsReencode = (fps && fps !== 'none') || (videoBitrate && videoBitrate !== 'none') || (videoCodec && videoCodec !== 'copy');
+
+                if (needsReencode) {
+                    const ffmpegArgs = [];
+
+                    // Video codec
+                    if (videoCodec && videoCodec !== 'copy') {
+                        if (videoCodec === 'h264') ffmpegArgs.push('-c:v', 'libx264');
+                        else if (videoCodec === 'h265') ffmpegArgs.push('-c:v', 'libx265');
+                        else if (videoCodec === 'vp9') ffmpegArgs.push('-c:v', 'libvpx-vp9');
+                        else if (videoCodec === 'av1') ffmpegArgs.push('-c:v', 'libaom-av1');
+                    } else {
+                        ffmpegArgs.push('-c:v', 'copy');
+                    }
+
+                    // Video bitrate
+                    if (videoBitrate && videoBitrate !== 'none') ffmpegArgs.push('-b:v', videoBitrate);
+
+                    // FPS limit
+                    if (fps && fps !== 'none') ffmpegArgs.push('-r', fps);
+
+                    // Audio copy
+                    ffmpegArgs.push('-c:a', 'copy');
+
+                    if (ffmpegArgs.length > 0) {
+                        args.push('--postprocessor-args', `ffmpeg:${ffmpegArgs.join(' ')}`);
+                    }
+                }
+            }
+
+            args.push('--progress', '--newline', '--no-cache-dir', '--no-check-certificates', '--force-ipv4');
+            args.push('--force-overwrites', '--postprocessor-args', 'ffmpeg:-y');
+            args.push('--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+            args.push(url);
+
+            console.log('Running yt-dlp:', args.join(' '));
+            event.reply('download-progress', { status: 'Process initialized...' });
+
+            const proc = spawn(YT_DLP_PATH, args, {
+                env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
+                windowsHide: true
+            });
+            let currentDownloadPath = null;
+            let stdoutBuffer = '';
+            let stderrBuffer = '';
+
+            proc.on('error', (err) => {
+                console.error('Spawn error:', err);
+                event.reply('download-error', { message: `Process failure: ${err.message}` });
+            });
+
+            proc.stdout.on('data', (data) => {
+                stdoutBuffer += data.toString();
+                const lines = stdoutBuffer.split(/\r?\n/);
+                stdoutBuffer = lines.pop();
+
+                for (const line of lines) {
+                    const str = line.trim();
+                    if (!str) continue;
+                    console.log('yt-dlp stdout:', str);
+
+                    // Parse progress - handle more variations (including ~ estimated size)
+                    const progressMatch = str.match(/\[download\]\s+(\d+\.?\d*)%/);
+                    const sizeMatch = str.match(/of\s+~?(\d+\.?\d*[KMG]iB)/) || str.match(/\[download\]\s+Total:\s+(\d+\.?\d*[KMG]iB)/);
+                    const speedMatch = str.match(/at\s+(\d+\.?\d*[KMG]iB\/s)/);
+                    const etaMatch = str.match(/ETA\s+(\d{2}:\d{2})/);
+
+                    const destMatch = str.match(/Destination:\s+(.*)/) ||
+                        str.match(/Already downloaded:\s+(.*)/) ||
+                        str.match(/\[download\]\s+(.*)\s+has already been downloaded/) ||
+                        str.match(/\[Merger\]\s+Merging\s+formats\s+into\s+"(.*)"/);
+                    if (destMatch && !destMatch[1].includes('...')) {
+                        currentDownloadPath = destMatch[1];
+                    }
+
+                    // Enhanced status updates: Capture any [] tag that isn't just [download] progress
+                    let status = null;
+                    const tagMatch = str.match(/^\[([^\]]+)\]/m);
+                    if (tagMatch) {
+                        const tag = tagMatch[1];
+                        if (tag === 'download' && !progressMatch) {
+                            // It's a [download] line but not progress (e.g. Destination)
+                            if (str.includes('Destination:')) status = 'Creating file...';
+                        } else if (tag !== 'download') {
+                            // Map common tags to friendly names, or use the tag itself
+                            if (tag === 'Merger') status = 'Merging formats...';
+                            else if (tag === 'ExtractAudio') status = 'Extracting audio...';
+                            else if (tag === 'info') {
+                                if (str.includes('Downloading webpage')) status = 'Connecting...';
+                                else if (str.includes('Downloading m3u8')) status = 'Preparing stream...';
+                                else status = 'Extracting metadata...';
+                            }
+                            else if (tag === 'dashsegments') status = 'Downloading segments...';
+                            else if (tag === 'hlsnative') status = 'Downloading segments...';
+                            else if (tag.startsWith('Fixup')) status = 'Fixing container...';
+                            else status = `${tag}...`;
+                        }
+                    }
+
+                    if (progressMatch) {
+                        event.reply('download-progress', {
+                            percent: parseFloat(progressMatch[1]),
+                            size: sizeMatch ? sizeMatch[1] : null,
+                            speed: speedMatch ? speedMatch[1] : null,
+                            eta: etaMatch ? etaMatch[1] : null,
+                            status: status || 'Downloading...'
+                        });
+                    } else if (status) {
+                        event.reply('download-progress', { status: status });
+                    }
+                }
+            });
+
+            proc.stderr.on('data', (data) => {
+                stderrBuffer += data.toString();
+                const lines = stderrBuffer.split(/\r?\n/);
+                stderrBuffer = lines.pop();
+
+                for (const line of lines) {
+                    const errStr = line.trim();
+                    if (!errStr) continue;
+                    console.error('yt-dlp stderr:', errStr);
+                    if (errStr.includes('ERROR:')) {
+                        event.reply('download-progress', { status: `Error: ${errStr.split('ERROR:')[1].trim()}` });
+                    } else {
+                        // Send other stderr lines as status if they look like progress/info
+                        event.reply('download-progress', { status: errStr.substring(0, 50) });
+                    }
+                }
+            });
+
+            let isCancelled = false;
+
+            const cancelHandler = () => {
+                isCancelled = true;
+                if (process.platform === 'win32') {
+                    // Robust process-tree kill for Windows to ensure ffmpeg is also stopped
+                    try {
+                        spawn('taskkill', ['/F', '/T', '/PID', proc.pid.toString()]);
+                    } catch (e) {
+                        proc.kill();
+                    }
+                } else {
+                    proc.kill();
+                }
+            };
+
+            ipcMain.on('cancel-download', cancelHandler);
+
+            proc.on('close', (code) => {
+                ipcMain.removeListener('cancel-download', cancelHandler);
+
+                if (isCancelled) {
+                    // Cleanup with delay
+                    setTimeout(() => {
+                        try {
+                            if (currentDownloadPath) {
+                                const base = currentDownloadPath.replace(/\.[^/.]+$/, "");
+                                const potentialFiles = [
+                                    currentDownloadPath,
+                                    currentDownloadPath + '.part',
+                                    currentDownloadPath + '.ytdl',
+                                    currentDownloadPath + '.temp',
+                                    base + '.part',
+                                    base + '.ytdl',
+                                    base + '.temp',
+                                    base + '.f137', // Example format fragments
+                                    base + '.f140',
+                                    base + '.f251',
+                                    base + '.f248'
+                                ];
+
+                                potentialFiles.forEach(file => {
+                                    if (fs.existsSync(file)) {
+                                        try { fs.unlinkSync(file); } catch (e) { /* ignore locked files */ }
+                                    }
+                                });
+
+                                // Also try glob-like cleanup for any .part or .temp with same base
+                                const dir = path.dirname(currentDownloadPath);
+                                const filename = path.basename(base);
+                                if (fs.existsSync(dir)) {
+                                    const files = fs.readdirSync(dir);
+                                    files.forEach(f => {
+                                        if (f.startsWith(filename) && (f.endsWith('.part') || f.endsWith('.temp') || f.endsWith('.ytdl'))) {
+                                            try { fs.unlinkSync(path.join(dir, f)); } catch (e) { }
+                                        }
+                                    });
+                                }
+                            }
+                        } catch (e) { console.error(e); }
+                    }, 1000);
+                    return;
+                }
+
+                if (code === 0) {
+                    event.reply('download-complete', { outputPath: currentDownloadPath || outputFolder });
+                } else {
+                    event.reply('download-error', { message: `Process exited with code ${code}` });
+                }
+            });
+        } catch (err) {
+            console.error('IPC handler crash:', err);
+            event.reply('download-error', { message: `Backend crash: ${err.message}` });
+        }
     });
 }
 
