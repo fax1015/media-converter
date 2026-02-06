@@ -883,7 +883,17 @@
                                 <div id="bitrate-container" class="control-group hidden">
                                     <div class="settings-split">
                                         <div class="control-group">
-                                            <input type="text" id="v-bitrate" placeholder="2500" value="2500">
+                                            <div class="number-input-container">
+                                                <button type="button" class="number-stepper-button decrement" data-input-id="v-bitrate" aria-label="Decrease average bitrate"></button>
+                                                <div class="number-input-field">
+                                                    <div class="number-input-display" aria-hidden="true">
+                                                        <span class="number-input-value current">2500</span>
+                                                        <span class="number-input-value next"></span>
+                                                    </div>
+                                                    <input type="number" id="v-bitrate" class="number-input-text-box number-input-hidden" placeholder="2500" value="2500" min="1" max="100000" data-step="100">
+                                                </div>
+                                                <button type="button" class="number-stepper-button increment" data-input-id="v-bitrate" aria-label="Increase average bitrate"></button>
+                                            </div>
                                         </div>
                                         <label class="checkbox-label" style="padding: 0;">
                                             <span>2-Pass Encoding</span>
@@ -1205,10 +1215,21 @@
                                     <span id="hw-auto-tag" class="auto-tag hidden">(auto selected)</span>
                                 </div>
                                 <p class="help-text">Experimental: May not work on all systems.</p>
+                                <br>
                             </div>
                             <div class="control-group">
                                 <label>CPU Threads</label>
-                                <input type="number" id="cpu-threads" min="0" max="64" value="0">
+                                <div class="number-input-container">
+                                    <button type="button" class="number-stepper-button decrement" data-input-id="cpu-threads" aria-label="Decrease CPU threads"></button>
+                                    <div class="number-input-field">
+                                        <div class="number-input-display" aria-hidden="true">
+                                            <span class="number-input-value current">0</span>
+                                            <span class="number-input-value next"></span>
+                                        </div>
+                                        <input type="number" id="cpu-threads" class="number-input-text-box number-input-hidden" min="0" max="64" value="0" data-step="1">
+                                    </div>
+                                    <button type="button" class="number-stepper-button increment" data-input-id="cpu-threads" aria-label="Increase CPU threads"></button>
+                                </div>
                                 <p class="help-text">0 = Auto (Recommended)</p>
                             </div>
                         </section>
@@ -1225,14 +1246,6 @@
                                 <div class="folder-input-group">
                                     <input type="text" id="output-folder" placeholder="Same as source">
                                     <button id="select-output-folder-btn" class="action-btn small">Browse</button>
-                                    <button id="revert-output-folder-btn" class="action-btn small icon-btn"
-                                        title="Clear output folder">
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-                                            stroke="currentColor" stroke-width="2">
-                                            <line x1="18" y1="6" x2="6" y2="18"></line>
-                                            <line x1="6" y1="6" x2="18" y2="18"></line>
-                                        </svg>
-                                    </button>
                                 </div>
                             </div>
                             <div class="control-group">
@@ -1379,7 +1392,7 @@
         </div>
     </div>
 
-    <script type="module" src="main.js"></script>
+    <script type="module" src="renderer.js"></script>
 </body>
 
 </html>

@@ -3,14 +3,94 @@
 
 import { DEFAULT_SETTINGS, ACCENT_COLORS, BUILT_IN_PRESETS, TOOL_REGISTRY, APP_SETTINGS_KEY } from './constants.js';
 import { get, getLoaderHTML, showPopup, showConfirm, setupCustomSelects, showView, toggleSidebar, resetNav, resetProgress, renderAudioTracks, renderSubtitleTracks, updateTextContent } from './modules/ui-utils.js';
-import { loadInspectorFile, setupInspectorHandlers } from './modules/inspector.js';
 import { addToQueue, updateQueueUI, updateQueueProgress, renderQueue, processQueue, updateQueueStatusUI, setupQueueHandlers } from './modules/queue.js';
-import { setupTrimmerHandlers, handleTrimFileSelection, loadTrimQueueItem } from './modules/trimmer.js';
 import { setupEncoderHandlers, handleFileSelection, handleFolderSelection, getOptionsFromUI, applyOptionsToUI, updateEstFileSize } from './modules/encoder.js';
-import { setupDownloaderHandlers, showDownloader, processVideoUrl } from './modules/downloader.js';
-import { setupExtractAudioHandlers, handleExtractFileSelection, updateExtractBitrateVisibility } from './modules/extract-audio.js';
 import { setupAppsHandlers } from './modules/apps.js';
 import * as state from './modules/state.js';
+
+let downloaderModulePromise = null;
+let downloaderInitialized = false;
+
+async function loadDownloader() {
+    if (!downloaderModulePromise) {
+        downloaderModulePromise = import('./modules/downloader.js').then((mod) => {
+            if (!downloaderInitialized) {
+                mod.setupDownloaderHandlers();
+                downloaderInitialized = true;
+            }
+            return mod;
+        }).catch((err) => {
+            downloaderModulePromise = null;
+            console.error('Failed to load downloader module', err);
+            showPopup('Failed to load downloader.');
+            throw err;
+        });
+    }
+    return downloaderModulePromise;
+}
+
+let trimmerModulePromise = null;
+let trimmerInitialized = false;
+
+async function loadTrimmer() {
+    if (!trimmerModulePromise) {
+        trimmerModulePromise = import('./modules/trimmer.js').then((mod) => {
+            if (!trimmerInitialized) {
+                mod.setupTrimmerHandlers();
+                trimmerInitialized = true;
+            }
+            return mod;
+        }).catch((err) => {
+            trimmerModulePromise = null;
+            console.error('Failed to load trimmer module', err);
+            showPopup('Failed to load trimmer.');
+            throw err;
+        });
+    }
+    return trimmerModulePromise;
+}
+
+let extractAudioModulePromise = null;
+let extractAudioInitialized = false;
+
+async function loadExtractAudio() {
+    if (!extractAudioModulePromise) {
+        extractAudioModulePromise = import('./modules/extract-audio.js').then((mod) => {
+            if (!extractAudioInitialized) {
+                mod.setupExtractAudioHandlers();
+                extractAudioInitialized = true;
+            }
+            return mod;
+        }).catch((err) => {
+            extractAudioModulePromise = null;
+            console.error('Failed to load extract audio module', err);
+            showPopup('Failed to load extract audio.');
+            throw err;
+        });
+    }
+    return extractAudioModulePromise;
+}
+
+let inspectorModulePromise = null;
+let inspectorInitialized = false;
+
+async function loadInspector() {
+    if (!inspectorModulePromise) {
+        inspectorModulePromise = import('./modules/inspector.js').then((mod) => {
+            if (!inspectorInitialized) {
+                mod.setupInspectorHandlers();
+                inspectorInitialized = true;
+            }
+            return mod;
+        }).catch((err) => {
+            inspectorModulePromise = null;
+            console.error('Failed to load inspector module', err);
+            showPopup('Failed to load inspector.');
+            throw err;
+        });
+    }
+    return inspectorModulePromise;
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Renderer initialized');
@@ -154,16 +234,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (hwAccelSelect) {
             const selected = hwAccelSelect.value;
-            if (selected === 'auto') {
-                state.appSettings.hwAccel = 'auto';
-            } else {
-                const resolved = getAutoEncoder();
-                if (state.appSettings.hwAccel === 'auto' && selected === resolved) {
-                    state.appSettings.hwAccel = 'auto';
-                } else {
-                    state.appSettings.hwAccel = selected;
-                }
-            }
+            state.appSettings.hwAccel = selected === 'auto' ? 'auto' : selected;
         }
         
         if (outputSuffixInput) state.appSettings.outputSuffix = outputSuffixInput.value;
@@ -188,8 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             if (hwAccelSelect) {
                 if (state.appSettings.hwAccel === 'auto') {
-                    const resolved = getAutoEncoder();
-                    hwAccelSelect.value = resolved !== 'none' ? resolved : 'none';
+                    hwAccelSelect.value = 'auto';
                     hwAccelSelect.dataset.auto = 'true';
                 } else {
                     hwAccelSelect.value = state.appSettings.hwAccel;
@@ -244,6 +314,184 @@ document.addEventListener('DOMContentLoaded', () => {
         document.documentElement.style.setProperty('--accent-secondary', color.secondary);
     }
 
+    function clampNumberInputValue(input, value) {
+        const min = input.min !== '' ? parseFloat(input.min) : -Infinity;
+        const max = input.max !== '' ? parseFloat(input.max) : Infinity;
+        let next = value;
+        if (!Number.isNaN(min)) next = Math.max(next, min);
+        if (!Number.isNaN(max)) next = Math.min(next, max);
+        return next;
+    }
+
+    function getNumberDefaultValue(input) {
+        const dataDefault = input.dataset.default !== undefined ? parseFloat(input.dataset.default) : Number.NaN;
+        if (!Number.isNaN(dataDefault)) return dataDefault;
+        const placeholderValue = input.placeholder !== '' ? parseFloat(input.placeholder) : Number.NaN;
+        if (!Number.isNaN(placeholderValue)) return placeholderValue;
+        if (input.min !== '') {
+            const minValue = parseFloat(input.min);
+            if (!Number.isNaN(minValue)) return minValue;
+        }
+        return 0;
+    }
+
+    function getNumberDisplayParts(input) {
+        const field = input.closest('.number-input-field');
+        if (!field) return null;
+        const display = field.querySelector('.number-input-display');
+        if (!display) return null;
+        const current = display.querySelector('.number-input-value.current');
+        const next = display.querySelector('.number-input-value.next');
+        if (!current || !next) return null;
+
+        return {
+            field,
+            display,
+            current,
+            next,
+        };
+    }
+
+    function syncNumberDisplay(input) {
+        const parts = getNumberDisplayParts(input);
+        if (!parts) return;
+
+        const fallback = input.value !== ''
+            ? input.value
+            : String(getNumberDefaultValue(input));
+        parts.display.classList.remove('animate-left', 'animate-right');
+        parts.current.textContent = fallback;
+        parts.next.textContent = '';
+    }
+
+    function setNumberEditingState(input, isEditing) {
+        const parts = getNumberDisplayParts(input);
+        if (!parts) return;
+
+        if (isEditing) {
+            parts.field.classList.add('is-editing');
+        } else {
+            parts.field.classList.remove('is-editing');
+        }
+    }
+
+    function animateNumberDisplay(input, direction, fromValue, toValue) {
+        const parts = getNumberDisplayParts(input);
+        if (!parts) return;
+
+        const classLeft = 'animate-left';
+        const classRight = 'animate-right';
+        const nextClass = direction > 0 ? classLeft : classRight;
+
+        parts.current.textContent = fromValue;
+        parts.next.textContent = toValue;
+        parts.display.classList.remove(classLeft, classRight);
+        // Restart animation by forcing a reflow.
+        void parts.display.offsetWidth;
+        parts.display.classList.add(nextClass);
+    }
+
+    function updateNumberStepperState(input) {
+        const container = input.closest('.number-input-container');
+        if (!container) return;
+
+        const decrement = container.querySelector('.number-stepper-button.decrement');
+        const increment = container.querySelector('.number-stepper-button.increment');
+        if (!decrement || !increment) return;
+
+        const currentValue = input.value === '' ? getNumberDefaultValue(input) : parseFloat(input.value);
+        const minValue = input.min !== '' ? parseFloat(input.min) : Number.NaN;
+        const maxValue = input.max !== '' ? parseFloat(input.max) : Number.NaN;
+
+        const atMin = !Number.isNaN(minValue) && !Number.isNaN(currentValue) && currentValue <= minValue;
+        const atMax = !Number.isNaN(maxValue) && !Number.isNaN(currentValue) && currentValue >= maxValue;
+
+        decrement.disabled = atMin;
+        increment.disabled = atMax;
+    }
+
+    function setupNumberSteppers() {
+        document.querySelectorAll('.number-stepper-button').forEach((button) => {
+            button.addEventListener('click', () => {
+                const inputId = button.dataset.inputId;
+                if (!inputId) return;
+                const input = document.getElementById(inputId);
+                if (!input) return;
+
+                const stepAttr = input.dataset.step || input.step || '1';
+                const step = parseFloat(stepAttr) || 1;
+                const direction = button.classList.contains('increment') ? 1 : -1;
+                const current = parseFloat(input.value);
+                const fallback = input.min !== '' ? parseFloat(input.min) : 0;
+                const startValue = Number.isNaN(current) ? fallback : current;
+                const nextValue = clampNumberInputValue(input, startValue + (direction * step));
+
+                if (Number.isNaN(nextValue)) return;
+                const previousValue = input.value !== '' ? input.value : String(startValue);
+                input.value = String(nextValue);
+                animateNumberDisplay(input, direction, previousValue, String(nextValue));
+                updateNumberStepperState(input);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        });
+
+        document.querySelectorAll('.number-input-text-box').forEach((input) => {
+            syncNumberDisplay(input);
+            updateNumberStepperState(input);
+
+            const parts = getNumberDisplayParts(input);
+            if (parts) {
+                parts.display.addEventListener('click', () => {
+                    input.focus();
+                });
+
+                parts.display.addEventListener('animationend', () => {
+                    parts.display.classList.remove('animate-left', 'animate-right');
+                    parts.current.textContent = parts.next.textContent || parts.current.textContent;
+                    parts.next.textContent = '';
+                });
+            }
+
+            input.addEventListener('input', () => {
+                const liveParts = getNumberDisplayParts(input);
+                if (!liveParts) return;
+                if (liveParts.display.classList.contains('animate-left') || liveParts.display.classList.contains('animate-right')) {
+                    return;
+                }
+                liveParts.current.textContent = input.value;
+                updateNumberStepperState(input);
+            });
+
+            input.addEventListener('focus', () => {
+                setNumberEditingState(input, true);
+            });
+
+            input.addEventListener('blur', () => {
+                setNumberEditingState(input, false);
+
+                if (input.value === '') {
+                    input.value = String(getNumberDefaultValue(input));
+                }
+
+                const current = parseFloat(input.value);
+                if (Number.isNaN(current)) {
+                    input.value = String(getNumberDefaultValue(input));
+                } else {
+                    const nextValue = clampNumberInputValue(input, current);
+                    if (nextValue !== current) {
+                        input.value = String(nextValue);
+                    }
+                }
+
+                syncNumberDisplay(input);
+                updateNumberStepperState(input);
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            });
+        });
+    }
+
     async function detectHardware() {
         try {
             const encoders = await electron.getEncoders();
@@ -251,8 +499,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.log('Detected encoders:', encoders);
 
             if (state.appSettings.hwAccel === 'auto' && hwAccelSelect) {
-                const resolved = getAutoEncoder();
-                hwAccelSelect.value = resolved !== 'none' ? resolved : 'none';
+                hwAccelSelect.value = 'auto';
                 hwAccelSelect.dataset.auto = 'true';
             }
             updateHardwareAutoTag();
@@ -281,6 +528,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load settings immediately to prevent theme flash
     loadSettings();
+
+    setupNumberSteppers();
 
     if (typeof requestIdleCallback !== 'undefined') {
         requestIdleCallback(() => detectHardware());
@@ -316,12 +565,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initialize modules
     setupCustomSelects();
-    setupInspectorHandlers();
     setupQueueHandlers();
     setupEncoderHandlers();
-    setupTrimmerHandlers();
-    setupDownloaderHandlers();
-    setupExtractAudioHandlers();
     setupAppsHandlers();
 
     // Navigation handlers
@@ -359,7 +604,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (navTrim) {
-        navTrim.addEventListener('click', () => {
+        navTrim.addEventListener('click', async () => {
+            await loadTrimmer();
             resetNav();
             navTrim.classList.add('active');
             showView(trimDropZone);
@@ -367,7 +613,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (navExtractAudio) {
-        navExtractAudio.addEventListener('click', () => {
+        navExtractAudio.addEventListener('click', async () => {
+            await loadExtractAudio();
             resetNav();
             navExtractAudio.classList.add('active');
             showView(extractAudioDropZone);
@@ -375,13 +622,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (navDownloader) {
-        navDownloader.addEventListener('click', () => {
+        navDownloader.addEventListener('click', async () => {
+            const { showDownloader } = await loadDownloader();
             showDownloader();
         });
     }
 
     if (navInspector) {
-        navInspector.addEventListener('click', () => {
+        navInspector.addEventListener('click', async () => {
+            await loadInspector();
             resetNav();
             navInspector.classList.add('active');
             showView(get('inspector-drop-zone'));
@@ -522,7 +771,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Queue item selection/editing handlers
-    window.loadQueueItem = (id) => {
+    window.loadQueueItem = async (id) => {
         if (state.isQueueRunning) {
             showPopup('Cannot edit queue items while the queue is running.');
             return;
@@ -533,12 +782,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         if (item && item.taskType === 'download') {
-            loadDownloadItemToDashboard(id);
+            await loadDownloader();
+            await loadDownloadItemToDashboard(id);
             return;
         }
 
         if (item && item.taskType === 'trim') {
             state.setCurrentEditingQueueId(id);
+            const { loadTrimQueueItem } = await loadTrimmer();
             loadTrimQueueItem(item).then(() => {
                 showView(trimDashboard);
                 resetNav();
@@ -549,6 +800,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (item && item.taskType === 'extract') {
             state.setCurrentEditingQueueId(id);
+            const { handleExtractFileSelection, updateExtractBitrateVisibility } = await loadExtractAudio();
             handleExtractFileSelection(item.options.input, {
                 format: item.options.format,
                 bitrate: item.options.bitrate
@@ -600,6 +852,8 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadDownloadItemToDashboard(id) {
         const item = state.encodingQueue.find(i => i.id === id);
         if (!item) return;
+
+        const { processVideoUrl } = await loadDownloader();
 
         state.setCurrentEditingQueueId(id);
         
