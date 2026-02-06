@@ -1518,7 +1518,7 @@ input[type="range"]:disabled::-webkit-slider-thumb {
 }
 
 .primary-btn:hover {
-    background: rgba(99, 241, 175, 0.1);
+    background: rgb(from var(--accent-primary) r g b / 0.1);
     box-shadow: 0 0 20px rgb(from var(--accent-primary) r g b / 0.1);
 }
 
@@ -1929,7 +1929,7 @@ select {
 
 .queue-item.active {
     border-color: var(--accent-primary);
-    background: rgba(99, 241, 175, 0.03);
+    background: rgb(from var(--accent-primary) r g b / 0.1);
 }
 
 .queue-item.completed {
@@ -2201,8 +2201,7 @@ input[type="text"]:focus {
 }
 
 .new-preset-form #new-preset-input {
-    padding: 0 52px 0 12px;
-    /* room for inline check on the right */
+    padding: 0 12px;
     border-radius: var(--input-radius);
     border: 1px solid var(--border-color);
     background: var(--bg-tertiary);
@@ -2215,36 +2214,16 @@ input[type="text"]:focus {
     line-height: normal;
 }
 
-.new-preset-input-wrap #new-preset-save {
-    position: absolute;
-    right: 10px;
-    top: 50%;
-    transform: translateY(-50%);
-    background: transparent;
-    border: none;
-    padding: 8px;
-    width: 36px;
+.new-preset-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.new-preset-actions #new-preset-save,
+.new-preset-actions #new-preset-cancel {
+    flex: 1;
     height: 36px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 6px;
-    cursor: pointer;
-    color: var(--text-primary);
-}
-
-.new-preset-input-wrap #new-preset-save svg {
-    width: 20px;
-    height: 20px;
-}
-
-.new-preset-input-wrap #new-preset-save:hover {
-    color: var(--accent-primary);
-}
-
-.new-preset-actions #new-preset-save {
-    width: 44px;
-    height: 44px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -2253,19 +2232,20 @@ input[type="text"]:focus {
     border: 1px solid var(--border-color);
     color: var(--text-primary);
     cursor: pointer;
-    font-weight: 700;
-}
-
-.new-preset-actions #new-preset-save svg {
-    display: block;
-    width: 20px;
-    height: 20px;
+    font-weight: 600;
+    font-size: var(--font-small);
 }
 
 .new-preset-actions #new-preset-save:hover {
     background: var(--bg-hover);
     border-color: var(--accent-primary);
     color: var(--accent-primary);
+}
+
+.new-preset-actions #new-preset-cancel:hover {
+    background: var(--bg-hover);
+    border-color: var(--error);
+    color: var(--error);
 }
 
 .preset-item.active {
@@ -2294,7 +2274,7 @@ input[type="text"]:focus {
 }
 
 .preset-action-btn:hover {
-    background: rgba(99, 241, 189, 0.05);
+    background: rgb(from var(--accent-primary) r g b / 0.1);
 }
 
 #current-preset-name {
@@ -4291,6 +4271,13 @@ input[type="number"]:focus {
     border-color: var(--accent-primary);
     background: rgb(from var(--accent-primary) r g b / 0.1);
     box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+.format-card-header {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
 }
 
 .format-top {

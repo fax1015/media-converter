@@ -1,6 +1,6 @@
 {
   "name": "video-toolbox",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "this is a video toolbox",
   "keywords": [
     "electron",
@@ -19,12 +19,15 @@
     "dev:watch": "npx electronmon --trace-warnings ."
   },
   "devDependencies": {
-    "@electron-forge/cli": "^7.6.0",
+    "@electron-forge/cli": "^7.11.1",
+    "@electron-forge/core": "^7.11.1",
+    "@electron-forge/core-utils": "^7.11.1",
     "@electron-forge/maker-squirrel": "^7.6.0",
     "@electron-forge/maker-zip": "^7.6.0",
     "@electron-forge/plugin-auto-unpack-natives": "^7.6.0",
     "@electron-forge/plugin-fuses": "^7.6.0",
-    "@electron/fuses": "^1.8.0",
-    "electron": "^40.1.0"
+    "@electron-forge/shared-types": "^7.11.1",
+    "@electron/fuses": "^2.0.0",
+    "electron": "^40.2.1"
   }
 }

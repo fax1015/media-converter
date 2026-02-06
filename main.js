@@ -59,7 +59,7 @@ function validateAndNormalizePath(inputPath, basePath = null) {
         if (basePath) {
             const resolvedBase = path.resolve(basePath);
             const relative = path.relative(resolvedBase, resolvedPath);
-            
+
             // If relative path starts with .., it's trying to escape basePath
             if (relative.startsWith('..')) {
                 console.error('Path traversal attempt detected:', inputPath);
@@ -81,7 +81,7 @@ function validateAndNormalizePath(inputPath, basePath = null) {
  */
 function validateUrl(url) {
     if (!url || typeof url !== 'string') return false;
-    
+
     try {
         // Allow http and https only
         const urlObj = new URL(url);
@@ -104,10 +104,10 @@ function getSafeFileName(filename) {
 
     // Use only alphanumeric, dash, underscore. Replace unsafe chars with underscore
     let safe = filename.replace(/[^a-zA-Z0-9._\-]/g, '_');
-    
+
     // Remove leading/trailing dots and slashes
     safe = safe.replace(/^[./\\]+|[./\\]+$/g, '');
-    
+
     // Limit length
     if (safe.length > 50) {
         safe = safe.substring(0, 50);
@@ -121,7 +121,7 @@ function getSafeFileName(filename) {
  * @returns {string} - UUID string
  */
 function generateUUID() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
         const r = Math.random() * 16 | 0;
         const v = c === 'x' ? r : (r & 0x3 | 0x8);
         return v.toString(16);
@@ -137,7 +137,7 @@ function generateUUID() {
  */
 function validateNumericInput(value, min = 0, max = 999999) {
     if (value === null || value === undefined) return true; // Optional parameter
-    
+
     const num = typeof value === 'string' ? parseInt(value) : value;
     return !isNaN(num) && num >= min && num <= max;
 }
@@ -149,7 +149,7 @@ function validateNumericInput(value, min = 0, max = 999999) {
  */
 function escapeMetadataString(str) {
     if (!str) return '';
-    
+
     // Remove control characters and limit length
     return String(str)
         .replace(/[\x00-\x1F\x7F]/g, '') // Remove control characters
@@ -244,16 +244,16 @@ function createWindow() {
     win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
     ipcMain.handle('select-file', async () => {
-        const { canceled, filePaths } = await dialog.showOpenDialog({
-            properties: ['openFile'],
+        const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+            properties: ['openFile', 'dontAddToRecent'],
             filters: [{ name: 'Videos', extensions: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv'] }]
         });
         return canceled ? null : filePaths[0];
     });
 
     ipcMain.handle('select-folder', async () => {
-        const { canceled, filePaths } = await dialog.showOpenDialog({
-            properties: ['openDirectory']
+        const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+            properties: ['openDirectory', 'dontAddToRecent']
         });
         return canceled ? null : filePaths[0];
     });
@@ -267,7 +267,7 @@ function createWindow() {
 
         // Normalize and validate path to prevent traversal
         const normalizedPath = path.normalize(folderPath);
-        
+
         try {
             // Check if path exists and is a directory
             const stats = await fs.promises.stat(normalizedPath);
@@ -326,7 +326,7 @@ function createWindow() {
         }
 
         const normalizedPath = path.normalize(filePath);
-        
+
         // Check if file exists
         try {
             await fs.promises.access(normalizedPath, fs.constants.R_OK);
@@ -382,6 +382,8 @@ function createWindow() {
             });
         });
     });
+
+    ipcMain.handle('get-app-version', () => app.getVersion());
 
     ipcMain.handle('get-metadata-full', async (event, filePath) => {
         return new Promise((resolve, reject) => {
@@ -484,13 +486,13 @@ function createWindow() {
                         // Create backup of original
                         const backupPath = validatedPath + '.backup';
                         await fs.promises.copyFile(validatedPath, backupPath);
-                        
+
                         // Replace original with temp file
                         await fs.promises.rename(tempPath, validatedPath);
-                        
+
                         // Remove backup after successful replacement
-                        await fs.promises.unlink(backupPath).catch(() => {});
-                        
+                        await fs.promises.unlink(backupPath).catch(() => { });
+
                         resolve({ success: true });
                     } catch (e) {
                         console.error('Error replacing file:', e);
@@ -602,8 +604,11 @@ function createWindow() {
         } = options;
 
         // Validate numeric inputs
-        if (!validateNumericInput(crf, 0, 51) || !validateNumericInput(bitrate, 50, 50000) || 
-            !validateNumericInput(threads, 1, 128)) {
+        const needsBitrate = rateMode === 'bitrate';
+        const hasCustomThreads = threads !== null && threads !== undefined && parseInt(threads) !== 0;
+        if (!validateNumericInput(crf, 0, 51) ||
+            (needsBitrate && !validateNumericInput(bitrate, 50, 50000)) ||
+            (hasCustomThreads && !validateNumericInput(threads, 1, 128))) {
             event.reply('encode-error', { message: 'Invalid numeric input parameters' });
             return;
         }
@@ -1124,7 +1129,7 @@ function createWindow() {
         const destMatch = str.match(/Destination:\s+(.*)/) ||
             str.match(/Already downloaded:\s+(.*)/) ||
             str.match(/\[download\]\s+(.*)\s+has already been downloaded/) ||
-            str.match(/\[Merger\]\s+Merging\s+formats\s+into\s+"(.*)"/);  
+            str.match(/\[Merger\]\s+Merging\s+formats\s+into\s+"(.*)"/);
         if (destMatch && !destMatch[1].includes('...')) {
             currentDownloadPath = destMatch[1];
         }
@@ -1195,7 +1200,7 @@ function createWindow() {
 
             // Use default output folder or Downloads
             const outputFolder = global.userSettings?.outputFolder || app.getPath('downloads');
-            
+
             // Validate output folder path
             const validatedFolder = validateAndNormalizePath(outputFolder);
             if (!validatedFolder) {
@@ -1322,7 +1327,7 @@ function createWindow() {
                 } else {
                     stdoutBuffer += chunk;
                 }
-                
+
                 const lines = stdoutBuffer.split(/\r?\n/);
                 stdoutBuffer = lines.pop();
 
@@ -1339,7 +1344,7 @@ function createWindow() {
                 } else {
                     stderrBuffer += chunk;
                 }
-                
+
                 const lines = stderrBuffer.split(/\r?\n/);
                 stderrBuffer = lines.pop();
 

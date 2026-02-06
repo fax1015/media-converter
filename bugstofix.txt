@@ -1,0 +1,10 @@
+these bugs may be able to be fixed from cross-referencing the renderer.js file
+there might be something deeper in the code thats blocking the interaction
+
+downloader:
+1) make the download options dynamically link to the format cards, and vice versa
+2) the open file, show in folder buttons still link to the wrong directory. the open file button doesnt open the file, but just open the file explorer where the file is
+
+encoder:
+2) the completion screen still doesnt work (eg. open file, show in folder, encode another video buttons)
+

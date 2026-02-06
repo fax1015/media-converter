@@ -23,3 +23,5 @@ electron-debug.log*
 .env.*.local
 
 stufftoadd.txt
+
+depreciated/

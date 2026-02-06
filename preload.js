@@ -26,5 +26,6 @@ contextBridge.exposeInMainWorld('electron', {
     cancelDownload: () => ipcRenderer.send('cancel-download'),
     onDownloadProgress: (callback) => ipcRenderer.on('download-progress', (event, data) => callback(data)),
     onDownloadComplete: (callback) => ipcRenderer.on('download-complete', (event, data) => callback(data)),
-    onDownloadError: (callback) => ipcRenderer.on('download-error', (event, data) => callback(data))
+    onDownloadError: (callback) => ipcRenderer.on('download-error', (event, data) => callback(data)),
+    getAppVersion: () => ipcRenderer.invoke('get-app-version')
 });
