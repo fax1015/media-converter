@@ -102,15 +102,19 @@ function getSafeFileName(filename) {
         return generateUUID();
     }
 
-    // Use only alphanumeric, dash, underscore. Replace unsafe chars with underscore
-    let safe = filename.replace(/[^a-zA-Z0-9._\-]/g, '_');
+    // Keep Unicode characters, only replace characters invalid on Windows/macOS.
+    let safe = filename
+        .replace(/[\x00-\x1F\x7F]/g, '')
+        .replace(/[\\/:*?"<>|]/g, '_')
+        .replace(/\s+/g, ' ')
+        .trim();
 
-    // Remove leading/trailing dots and slashes
-    safe = safe.replace(/^[./\\]+|[./\\]+$/g, '');
+    // Remove leading/trailing dots or spaces (Windows disallows trailing dots/spaces).
+    safe = safe.replace(/^[.\s]+|[.\s]+$/g, '');
 
-    // Limit length
-    if (safe.length > 50) {
-        safe = safe.substring(0, 50);
+    // Limit length to a reasonable size to avoid filesystem issues.
+    if (safe.length > 120) {
+        safe = safe.substring(0, 120).trim();
     }
 
     return safe || generateUUID();
@@ -243,11 +247,18 @@ function createWindow() {
 
     win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 
-    ipcMain.handle('select-file', async () => {
-        const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-            properties: ['openFile', 'dontAddToRecent'],
-            filters: [{ name: 'Videos', extensions: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv'] }]
-        });
+    ipcMain.handle('select-file', async (event, options = {}) => {
+        const dialogOptions = {
+            properties: ['openFile', 'dontAddToRecent']
+        };
+
+        if (Array.isArray(options.filters) && options.filters.length > 0) {
+            dialogOptions.filters = options.filters;
+        } else if (!options.allowAll) {
+            dialogOptions.filters = [{ name: 'Videos', extensions: ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv'] }];
+        }
+
+        const { canceled, filePaths } = await dialog.showOpenDialog(win, dialogOptions);
         return canceled ? null : filePaths[0];
     });
 
@@ -916,11 +927,21 @@ function createWindow() {
 
 
     ipcMain.on('extract-audio', (event, options) => {
-        const { input, format, bitrate, workPriority } = options;
+        const { input, format, bitrate, sampleRate, mp3Mode, mp3Quality, flacLevel, workPriority } = options;
         const extMap = { mp3: 'mp3', aac: 'm4a', flac: 'flac', wav: 'wav', ogg: 'ogg', opus: 'opus' };
         const ext = extMap[format] || 'mp3';
         const baseName = input.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
         const outputPath = input.replace(/\.[^.]+$/, `_audio.${ext}`);
+
+        const allowedSampleRates = new Set(['44100', '48000', '96000']);
+        const allowedMp3Modes = new Set(['cbr', 'vbr']);
+        const allowedMp3Qualities = new Set(['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+        const allowedFlacLevels = new Set(['0', '1', '2', '3', '4', '5', '6', '7', '8']);
+
+        const normalizedSampleRate = allowedSampleRates.has(String(sampleRate)) ? String(sampleRate) : null;
+        const normalizedMp3Mode = allowedMp3Modes.has(String(mp3Mode)) ? String(mp3Mode) : 'cbr';
+        const normalizedMp3Quality = allowedMp3Qualities.has(String(mp3Quality)) ? String(mp3Quality) : '2';
+        const normalizedFlacLevel = allowedFlacLevels.has(String(flacLevel)) ? String(flacLevel) : '5';
 
         const codecMap = {
             mp3: ['libmp3lame', bitrate || '192k'],
@@ -932,7 +953,13 @@ function createWindow() {
         };
         const [aCodec, aBitrate] = codecMap[format] || codecMap.mp3;
         const args = ['-y', '-i', input, '-vn', '-c:a', aCodec];
-        if (aBitrate) args.push('-b:a', aBitrate);
+        if (normalizedSampleRate) args.push('-ar', normalizedSampleRate);
+        if (format === 'flac') args.push('-compression_level', normalizedFlacLevel);
+        if (format === 'mp3' && normalizedMp3Mode === 'vbr') {
+            args.push('-q:a', normalizedMp3Quality);
+        } else if (aBitrate) {
+            args.push('-b:a', aBitrate);
+        }
         args.push(outputPath);
 
         currentFfmpegProcess = spawn(FFMPEG_PATH, args);
@@ -1077,7 +1104,7 @@ function createWindow() {
                 '--dump-json',
                 '--no-download',
                 '--no-warnings',
-                '--restrict-filenames',  // Prevent unsafe filename issues
+                // Preserve original titles for non-English characters
                 '--user-agent', USER_AGENT,
                 url
             ];
@@ -1294,7 +1321,7 @@ function createWindow() {
             }
 
             args.push('-o', outputTemplate);
-            args.push('--restrict-filenames'); // Prevent unsafe filename issues
+            // Preserve original titles for non-English characters
 
             if (fs.existsSync(FFMPEG_PATH)) {
                 args.push('--ffmpeg-location', FFMPEG_PATH);

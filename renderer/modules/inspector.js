@@ -1,6 +1,6 @@
 // Media Inspector Module
 
-import { get, getLoaderHTML, showPopup, formatBytes, formatDurationFromSeconds } from './ui-utils.js';
+import { get, showPopup, formatBytes, formatDurationFromSeconds, renderLoaders } from './ui-utils.js';
 import { showView } from './ui-utils.js';
 
 let currentInspectorFilePath = null;
@@ -23,7 +23,7 @@ function setupInspectorRawJsonToggle() {
     });
 }
 
-function renderStreamInfo(streams) {
+function renderStreamInfo(streams, format) {
     const inspectorStreams = get('inspector-streams');
     
     if (!inspectorStreams || !streams) {
@@ -31,33 +31,75 @@ function renderStreamInfo(streams) {
         return;
     }
 
+    const isImageCodec = (codecName) => {
+        if (!codecName) return false;
+        const imageCodecs = ['mjpeg', 'jpeg', 'jpg', 'png', 'bmp', 'gif', 'tiff', 'webp', 'heif', 'heic'];
+        return imageCodecs.includes(codecName.toLowerCase());
+    };
+    const isImageFormat = (formatName) => {
+        if (!formatName) return false;
+        return formatName.toLowerCase().includes('image');
+    };
+
     inspectorStreams.innerHTML = streams.map((stream, index) => {
         const type = stream.codec_type || 'unknown';
         const codec = stream.codec_name || 'Unknown';
+        const displayType = type === 'video' && (isImageCodec(stream.codec_name) || isImageFormat(format?.format_name))
+            ? 'image'
+            : type;
         const details = [];
+        const addDetail = (value) => {
+            if (value) details.push(value);
+        };
+        const addBitRate = (bitRate) => {
+            if (!bitRate) return;
+            const rate = Math.round(parseInt(bitRate, 10) / 1000);
+            if (Number.isFinite(rate)) details.push(`${rate} kbps`);
+        };
+        const addDuration = (duration) => {
+            if (!duration) return;
+            const seconds = parseFloat(duration);
+            if (Number.isFinite(seconds)) details.push(formatDurationFromSeconds(seconds));
+        };
+        const addLanguage = () => addDetail(stream.tags?.language);
 
         if (type === 'video') {
             if (stream.width && stream.height) details.push(`${stream.width}×${stream.height}`);
-            if (stream.r_frame_rate) {
+            if (stream.r_frame_rate && displayType !== 'image') {
                 const [num, den] = stream.r_frame_rate.split('/');
-                const fps = (parseFloat(num) / parseFloat(den)).toFixed(2);
-                details.push(`${fps} fps`);
+                const fps = parseFloat(num) / parseFloat(den);
+                if (Number.isFinite(fps)) details.push(`${fps.toFixed(2)} fps`);
             }
-            if (stream.bit_rate) details.push(`${Math.round(stream.bit_rate / 1000)} kbps`);
-            if (stream.pix_fmt) details.push(stream.pix_fmt);
+            addBitRate(stream.bit_rate);
+            addDetail(stream.pix_fmt);
+            addDetail(stream.color_space);
+            addDuration(stream.duration);
         } else if (type === 'audio') {
-            if (stream.sample_rate) details.push(`${stream.sample_rate} Hz`);
-            if (stream.channels) details.push(`${stream.channels} ch`);
-            if (stream.bit_rate) details.push(`${Math.round(stream.bit_rate / 1000)} kbps`);
-            if (stream.channel_layout) details.push(stream.channel_layout);
+            addDetail(stream.sample_rate ? `${stream.sample_rate} Hz` : null);
+            addDetail(stream.channels ? `${stream.channels} ch` : null);
+            addBitRate(stream.bit_rate);
+            addDetail(stream.channel_layout);
+            addDuration(stream.duration);
         } else if (type === 'subtitle') {
-            if (stream.tags?.language) details.push(stream.tags.language);
+            addLanguage();
+            addDetail(stream.tags?.title);
+            addDetail(stream.codec_tag_string);
+        } else {
+            addLanguage();
+            addDetail(stream.codec_long_name);
+            addDetail(stream.codec_tag_string);
+            addDetail(stream.profile);
+            addBitRate(stream.bit_rate);
+            addDuration(stream.duration);
+            addDetail(stream.tags?.title);
+            addDetail(stream.tags?.filename);
+            addDetail(stream.tags?.mimetype);
         }
 
         return `
             <div class="stream-card container-loaded">
                 <div class="stream-card-header">
-                    <span class="stream-type-badge ${type}">${type.toUpperCase()}</span>
+                    <span class="stream-type-badge ${displayType}">${displayType.toUpperCase()}</span>
                     <span class="stream-codec">${codec.toUpperCase()}</span>
                     <span style="color:var(--text-muted);font-size:0.8em;">Stream #${index}</span>
                 </div>
@@ -107,7 +149,25 @@ function populateMetadataFields(data) {
         if (metaComment) metaComment.value = tags.comment || tags.COMMENT || tags.description || '';
     }
 
-    renderStreamInfo(data.streams);
+    renderStreamInfo(data.streams, data.format);
+}
+
+function clearMetadataFields() {
+    const metaTitle = get('meta-title');
+    const metaArtist = get('meta-artist');
+    const metaAlbum = get('meta-album');
+    const metaYear = get('meta-year');
+    const metaGenre = get('meta-genre');
+    const metaTrack = get('meta-track');
+    const metaComment = get('meta-comment');
+
+    if (metaTitle) metaTitle.value = '';
+    if (metaArtist) metaArtist.value = '';
+    if (metaAlbum) metaAlbum.value = '';
+    if (metaYear) metaYear.value = '';
+    if (metaGenre) metaGenre.value = '';
+    if (metaTrack) metaTrack.value = '';
+    if (metaComment) metaComment.value = '';
 }
 
 export async function loadInspectorFile(filePath) {
@@ -127,14 +187,30 @@ export async function loadInspectorFile(filePath) {
 
     if (inspectorFilename) inspectorFilename.textContent = filename;
     if (inspectorFileIcon) inspectorFileIcon.textContent = ext;
-    if (inspectorContent) inspectorContent.innerHTML = `<div style="display:flex;align-items:center;gap:12px;color:var(--text-muted)">${getLoaderHTML(18)} Loading metadata...</div>`;
-    if (inspectorStreams) inspectorStreams.innerHTML = `<div style="display:flex;justify-content:center;padding:40px;width:100%">${getLoaderHTML(40)}</div>`;
+    if (inspectorContent) {
+        inspectorContent.innerHTML = `
+            <div style="display:flex;align-items:center;gap:12px;color:var(--text-muted)">
+                <span class="loader-shell" data-loader data-loader-size="18"></span>
+                Loading metadata...
+            </div>
+        `;
+    }
+    if (inspectorStreams) {
+        inspectorStreams.innerHTML = `
+            <div style="display:flex;justify-content:center;padding:40px;width:100%">
+                <span class="loader-shell" data-loader data-loader-size="40"></span>
+            </div>
+        `;
+    }
+    renderLoaders({ selector: '#inspector-view [data-loader]' });
 
     try {
         const data = await window.electron.getMetadataFull(filePath);
 
         if (data.error) {
             if (inspectorContent) inspectorContent.textContent = 'Error: ' + data.error;
+            showPopup('Unsupported or corrupted file');
+            showView(get('inspector-drop-zone'));
             return;
         }
 
@@ -154,12 +230,13 @@ export function setupInspectorHandlers() {
     const inspectorDropZone = get('inspector-drop-zone');
     const inspectorBackBtn = get('inspector-back-btn');
     const inspectorSaveBtn = get('inspector-save-btn');
+    const inspectorClearBtn = get('inspector-clear-btn');
 
     setupInspectorRawJsonToggle();
     
     if (inspectorDropZone) {
         inspectorDropZone.addEventListener('click', async () => {
-            const filePath = await window.electron.selectFile();
+            const filePath = await window.electron.selectFile({ allowAll: true });
             if (filePath) loadInspectorFile(filePath);
         });
 
@@ -218,7 +295,8 @@ export function setupInspectorHandlers() {
             };
 
             inspectorSaveBtn.disabled = true;
-            inspectorSaveBtn.innerHTML = `${getLoaderHTML(18)} Saving...`;
+            inspectorSaveBtn.innerHTML = `<span class="loader-shell" data-loader data-loader-size="18"></span> Saving...`;
+            renderLoaders({ selector: '#inspector-save-btn [data-loader]' });
 
             try {
                 const result = await window.electron.saveMetadata({
@@ -270,6 +348,12 @@ export function setupInspectorHandlers() {
                 `;
                 inspectorSaveBtn.disabled = false;
             }
+        });
+    }
+
+    if (inspectorClearBtn) {
+        inspectorClearBtn.addEventListener('click', () => {
+            clearMetadataFields();
         });
     }
 }

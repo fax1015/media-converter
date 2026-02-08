@@ -1,6 +1,6 @@
 // Video Trimmer Module
 
-import { get, getLoaderHTML, showPopup, showView, updateTextContent } from './ui-utils.js';
+import { get, showPopup, showView, updateTextContent } from './ui-utils.js';
 import { resetNav } from './ui-utils.js';
 import * as state from './state.js';
 import { addToQueue, updateQueueUI } from './queue.js';

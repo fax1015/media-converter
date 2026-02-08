@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS = {
     overwriteFiles: false,
     notifyOnComplete: true,
     showBlobs: true,
+    skeuoMode: false,
     cpuThreads: 0,
     pinnedApps: ['converter', 'folder', 'trim', 'extract-audio']
 };
@@ -60,7 +61,7 @@ export const TOOL_REGISTRY = [
         id: 'converter',
         name: 'Video Converter',
         description: 'Convert videos to different formats with custom settings.',
-        icon: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="7" height="9" rx="1"></rect><rect x="15" y="12" width="7" height="9" rx="1"></rect><path d="M9 8h6"></path><path d="M13 6l2 2-2 2"></path><path d="M15 16H9"></path><path d="M11 14l-2 2 2 2"></path></svg>`,
+        icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>`,
         viewId: 'drop-zone',
         navId: 'nav-video',
         action: 'view'

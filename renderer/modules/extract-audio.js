@@ -9,9 +9,21 @@ let extractFilePath = null;
 export function updateExtractBitrateVisibility() {
     const extractAudioFormatSelect = get('extract-audio-format');
     const extractBitrateGroup = get('extract-bitrate-group');
+    const mp3ModeGroup = get('extract-mp3-mode-group');
+    const mp3ModeSelect = get('extract-mp3-mode');
+    const mp3QualityGroup = get('extract-mp3-quality-group');
+    const flacLevelGroup = get('extract-flac-level-group');
     if (!extractAudioFormatSelect || !extractBitrateGroup) return;
     const format = extractAudioFormatSelect.value;
-    extractBitrateGroup.classList.toggle('hidden', format === 'flac' || format === 'wav');
+    const isLossless = format === 'flac' || format === 'wav';
+    const isMp3 = format === 'mp3';
+    const mp3Mode = mp3ModeSelect ? mp3ModeSelect.value : 'cbr';
+    const isMp3Vbr = isMp3 && mp3Mode === 'vbr';
+
+    extractBitrateGroup.classList.toggle('hidden', isLossless || isMp3Vbr);
+    if (mp3ModeGroup) mp3ModeGroup.classList.toggle('hidden', !isMp3);
+    if (mp3QualityGroup) mp3QualityGroup.classList.toggle('hidden', !isMp3Vbr);
+    if (flacLevelGroup) flacLevelGroup.classList.toggle('hidden', format !== 'flac');
 }
 
 export async function handleExtractFileSelection(filePath, options = {}) {
@@ -20,6 +32,10 @@ export async function handleExtractFileSelection(filePath, options = {}) {
     const extractFileDuration = get('extract-file-duration');
     const extractAudioFormatSelect = get('extract-audio-format');
     const extractAudioBitrateSelect = get('extract-audio-bitrate');
+    const extractSampleRateSelect = get('extract-audio-sample-rate');
+    const extractMp3ModeSelect = get('extract-mp3-mode');
+    const extractMp3QualitySelect = get('extract-mp3-quality');
+    const extractFlacLevelSelect = get('extract-flac-level');
     const extractAudioDashboard = get('extract-audio-dashboard');
     const extractAddQueueBtn = get('extract-add-queue-btn');
 
@@ -52,6 +68,18 @@ export async function handleExtractFileSelection(filePath, options = {}) {
     if (extractAudioBitrateSelect && options.bitrate) {
         extractAudioBitrateSelect.value = options.bitrate;
     }
+    if (extractSampleRateSelect && options.sampleRate) {
+        extractSampleRateSelect.value = options.sampleRate;
+    }
+    if (extractMp3ModeSelect && options.mp3Mode) {
+        extractMp3ModeSelect.value = options.mp3Mode;
+    }
+    if (extractMp3QualitySelect && options.mp3Quality) {
+        extractMp3QualitySelect.value = options.mp3Quality;
+    }
+    if (extractFlacLevelSelect && options.flacLevel) {
+        extractFlacLevelSelect.value = options.flacLevel;
+    }
 
     updateExtractBitrateVisibility();
 
@@ -63,12 +91,45 @@ export async function handleExtractFileSelection(filePath, options = {}) {
     }
 }
 
+function getExtractOptionsFromUI() {
+    const extractAudioFormatSelect = get('extract-audio-format');
+    const extractAudioBitrateSelect = get('extract-audio-bitrate');
+    const extractSampleRateSelect = get('extract-audio-sample-rate');
+    const extractMp3ModeSelect = get('extract-mp3-mode');
+    const extractMp3QualitySelect = get('extract-mp3-quality');
+    const extractFlacLevelSelect = get('extract-flac-level');
+
+    const format = extractAudioFormatSelect ? extractAudioFormatSelect.value : 'mp3';
+    const mp3Mode = extractMp3ModeSelect ? extractMp3ModeSelect.value : 'cbr';
+    const sampleRate = extractSampleRateSelect ? extractSampleRateSelect.value : 'source';
+    const mp3Quality = extractMp3QualitySelect ? extractMp3QualitySelect.value : '2';
+    const flacLevel = extractFlacLevelSelect ? extractFlacLevelSelect.value : '5';
+
+    let bitrate = null;
+    if (format !== 'flac' && format !== 'wav') {
+        if (!(format === 'mp3' && mp3Mode === 'vbr')) {
+            bitrate = extractAudioBitrateSelect ? extractAudioBitrateSelect.value : '192k';
+        }
+    }
+
+    return {
+        input: extractFilePath,
+        format,
+        bitrate,
+        sampleRate,
+        mp3Mode: format === 'mp3' ? mp3Mode : null,
+        mp3Quality: format === 'mp3' && mp3Mode === 'vbr' ? mp3Quality : null,
+        flacLevel: format === 'flac' ? flacLevel : null
+    };
+}
+
 export function setupExtractAudioHandlers() {
     const extractFilenameEl = get('extract-filename');
     const extractFileIcon = get('extract-file-icon');
     const extractFileDuration = get('extract-file-duration');
     const extractAudioFormatSelect = get('extract-audio-format');
     const extractAudioBitrateSelect = get('extract-audio-bitrate');
+    const extractMp3ModeSelect = get('extract-mp3-mode');
     const extractAddQueueBtn = get('extract-add-queue-btn');
     const extractBitrateGroup = get('extract-bitrate-group');
     const extractAudioBtn = get('extract-audio-btn');
@@ -84,6 +145,9 @@ export function setupExtractAudioHandlers() {
 
     if (extractAudioFormatSelect) {
         extractAudioFormatSelect.addEventListener('change', updateExtractBitrateVisibility);
+    }
+    if (extractMp3ModeSelect) {
+        extractMp3ModeSelect.addEventListener('change', updateExtractBitrateVisibility);
     }
 
     if (extractAudioDropZone) {
@@ -130,9 +194,7 @@ export function setupExtractAudioHandlers() {
     if (extractAddQueueBtn) {
         extractAddQueueBtn.addEventListener('click', () => {
             if (!extractFilePath) return;
-            const format = extractAudioFormatSelect ? extractAudioFormatSelect.value : 'mp3';
-            const bitrate = (format === 'flac' || format === 'wav') ? null : (extractAudioBitrateSelect ? extractAudioBitrateSelect.value : '192k');
-            const options = { input: extractFilePath, format, bitrate };
+            const options = getExtractOptionsFromUI();
 
             if (state.currentEditingQueueId !== null) {
                 const item = state.encodingQueue.find(i => i.id === state.currentEditingQueueId);
@@ -174,13 +236,9 @@ export function setupExtractAudioHandlers() {
             };
             toggleSidebar(true);
 
-            const format = extractAudioFormatSelect ? extractAudioFormatSelect.value : 'mp3';
-            const bitrate = (format === 'flac' || format === 'wav') ? null : (extractAudioBitrateSelect ? extractAudioBitrateSelect.value : '192k');
-            
+            const options = getExtractOptionsFromUI();
             window.electron.extractAudio({
-                input: extractFilePath,
-                format,
-                bitrate,
+                ...options,
                 workPriority: state.appSettings.workPriority || 'normal'
             });
         });

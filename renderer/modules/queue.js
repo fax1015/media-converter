@@ -150,7 +150,7 @@ export function renderQueue() {
              onclick="window.loadQueueItem('${item.id}')">
             <div class="queue-item-info">
                 <div class="queue-item-name">${item.name}</div>
-                <div class="queue-item-status">${encodingStatus !== null ? encodingStatus : statusText}</div>
+                <div class="queue-item-status" data-animate-number>${encodingStatus !== null ? encodingStatus : statusText}</div>
             </div>
             ${item.status === 'encoding' || item.status === 'completed' ? `
             <div class="queue-item-progress">

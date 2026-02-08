@@ -1,6 +1,6 @@
 // Video Downloader Module
 
-import { get, showPopup, showConfirm, showView, showPlaylistConfirm, getLoaderHTML, formatDurationFromSeconds, formatBytes, sanitizeFilename, resetNav, toggleSidebar } from './ui-utils.js';
+import { get, showPopup, showConfirm, showView, showPlaylistConfirm, formatDurationFromSeconds, formatBytes, sanitizeFilename, resetNav, toggleSidebar, renderLoaders, animateAutoHeight } from './ui-utils.js';
 import * as state from './state.js';
 import { addToQueue, updateQueueUI, updateQueueStatusUI, processQueue } from './queue.js';
 
@@ -416,8 +416,9 @@ export async function processVideoUrl(url) {
     if (dlVideoChannel) dlVideoChannel.textContent = '--';
     if (dlThumbnail) dlThumbnail.style.display = 'none';
     if (dlThumbnailPlaceholder) {
-        dlThumbnailPlaceholder.innerHTML = getLoaderHTML(32);
+        dlThumbnailPlaceholder.innerHTML = '<span class="loader-shell" data-loader data-loader-size="32"></span>';
         dlThumbnailPlaceholder.style.display = 'flex';
+        renderLoaders({ selector: '#dl-thumbnail-placeholder [data-loader]' });
     }
 
     if (dlSettingsPanel) dlSettingsPanel.classList.add('hidden');
@@ -703,6 +704,7 @@ export function setupDownloaderHandlers() {
     const dlAudioFormatSelect = get('dl-audio-format');
     const dlAudioBitrateSelect = get('dl-audio-bitrate');
     const dlFormatTabs = get('dl-format-tabs');
+    const dlFormatsSection = get('dl-formats-section');
     const dlOpenFileBtn = get('dl-open-file-btn');
     const dlOpenFolderBtn = get('dl-open-folder-btn');
     const dlNewDownloadBtn = get('dl-new-download-btn');
@@ -829,34 +831,39 @@ export function setupDownloaderHandlers() {
             const dlFpsGroup = get('dl-fps-group');
             const dlVideoCodecGroup = get('dl-video-codec-group');
             const dlAdvancedPanel = get('dl-advanced-panel');
+            const dlSettingsPanel = get('dl-settings-panel');
 
-            if (dlAudioFormatGroup) dlAudioFormatGroup.classList.toggle('hidden', !isAudio);
-            if (dlAudioBitrateGroup) dlAudioBitrateGroup.classList.toggle('hidden', !isAudio);
-            if (dlVideoQualityGroup) dlVideoQualityGroup.classList.toggle('hidden', isAudio);
-            if (dlVideoFormatGroup) dlVideoFormatGroup.classList.toggle('hidden', isAudio);
-            if (dlFpsGroup) dlFpsGroup.classList.toggle('hidden', isAudio);
-            if (dlVideoCodecGroup) dlVideoCodecGroup.classList.toggle('hidden', isAudio);
+            const applyModeUI = () => {
+                if (dlAudioFormatGroup) dlAudioFormatGroup.classList.toggle('hidden', !isAudio);
+                if (dlAudioBitrateGroup) dlAudioBitrateGroup.classList.toggle('hidden', !isAudio);
+                if (dlVideoQualityGroup) dlVideoQualityGroup.classList.toggle('hidden', isAudio);
+                if (dlVideoFormatGroup) dlVideoFormatGroup.classList.toggle('hidden', isAudio);
+                if (dlFpsGroup) dlFpsGroup.classList.toggle('hidden', isAudio);
+                if (dlVideoCodecGroup) dlVideoCodecGroup.classList.toggle('hidden', isAudio);
 
-            if (dlAdvancedPanel) {
-                const isCurrentlyHidden = dlAdvancedPanel.classList.contains('hidden');
-                dlAdvancedPanel.classList.toggle('hidden', isAudio);
-                if (isCurrentlyHidden && !isAudio) {
-                    dlAdvancedPanel.classList.remove('container-loaded');
-                    void dlAdvancedPanel.offsetWidth;
-                    dlAdvancedPanel.classList.add('container-loaded');
+                if (dlAdvancedPanel) {
+                    const isCurrentlyHidden = dlAdvancedPanel.classList.contains('hidden');
+                    dlAdvancedPanel.classList.toggle('hidden', isAudio);
+                    if (isCurrentlyHidden && !isAudio) {
+                        dlAdvancedPanel.classList.remove('container-loaded');
+                        void dlAdvancedPanel.offsetWidth;
+                        dlAdvancedPanel.classList.add('container-loaded');
+                    }
                 }
-            }
 
-            const targetTab = isAudio ? 'audio' : 'video';
-            if (currentFormatTab !== targetTab) {
-                currentFormatTab = targetTab;
-                if (dlFormatTabs) {
-                    dlFormatTabs.querySelectorAll('.tab-btn').forEach(btn => {
-                        btn.classList.toggle('active', btn.dataset.tab === targetTab);
-                    });
+                const targetTab = isAudio ? 'audio' : 'video';
+                if (currentFormatTab !== targetTab) {
+                    currentFormatTab = targetTab;
+                    if (dlFormatTabs) {
+                        dlFormatTabs.querySelectorAll('.tab-btn').forEach(btn => {
+                            btn.classList.toggle('active', btn.dataset.tab === targetTab);
+                        });
+                    }
+                    renderFormats();
                 }
-                renderFormats();
-            }
+            };
+
+            animateAutoHeight(dlSettingsPanel, applyModeUI);
 
             if (!isSyncingUI) syncFormatCardFromDropdowns();
         });
@@ -1012,10 +1019,12 @@ export function setupDownloaderHandlers() {
         dlFormatTabs.querySelectorAll('.tab-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const tab = btn.dataset.tab;
-                currentFormatTab = tab;
-                dlFormatTabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                renderFormats();
+                animateAutoHeight(dlFormatsSection, () => {
+                    currentFormatTab = tab;
+                    dlFormatTabs.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    renderFormats();
+                });
             });
         });
     }

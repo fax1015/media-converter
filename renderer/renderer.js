@@ -2,7 +2,7 @@
 // This imports modularized code and initializes the application
 
 import { DEFAULT_SETTINGS, ACCENT_COLORS, BUILT_IN_PRESETS, TOOL_REGISTRY, APP_SETTINGS_KEY } from './constants.js';
-import { get, getLoaderHTML, showPopup, showConfirm, setupCustomSelects, showView, toggleSidebar, resetNav, resetProgress, renderAudioTracks, renderSubtitleTracks, updateTextContent } from './modules/ui-utils.js';
+import { get, showPopup, showConfirm, setupCustomSelects, showView, toggleSidebar, resetNav, resetProgress, renderAudioTracks, renderSubtitleTracks, updateTextContent, renderLoaders, setupAnimatedNumbers } from './modules/ui-utils.js';
 import { addToQueue, updateQueueUI, updateQueueProgress, renderQueue, processQueue, updateQueueStatusUI, setupQueueHandlers } from './modules/queue.js';
 import { setupEncoderHandlers, handleFileSelection, handleFolderSelection, getOptionsFromUI, applyOptionsToUI, updateEstFileSize } from './modules/encoder.js';
 import { setupAppsHandlers } from './modules/apps.js';
@@ -94,6 +94,9 @@ async function loadInspector() {
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('Renderer initialized');
+
+    renderLoaders();
+    setupAnimatedNumbers();
 
     const appVersionEl = get('app-version');
     if (appVersionEl && window.electron?.getAppVersion) {
@@ -207,6 +210,30 @@ document.addEventListener('DOMContentLoaded', () => {
     const currentPresetName = get('current-preset-name');
     const customPresetsList = get('custom-presets-list');
     const savePresetBtn = get('save-preset-btn');
+
+    const sidebar = document.querySelector('.app-sidebar');
+    const sidebarIndicator = document.querySelector('.sidebar-active-indicator');
+
+    const updateSidebarIndicator = () => {
+        if (!sidebar || !sidebarIndicator) return;
+        const activeButton = sidebar.querySelector('.nav-item.active');
+        if (!activeButton) {
+            sidebarIndicator.style.opacity = '0';
+            return;
+        }
+
+        const sidebarRect = sidebar.getBoundingClientRect();
+        const activeRect = activeButton.getBoundingClientRect();
+        const indicatorHeight = sidebarIndicator.offsetHeight || 24;
+        const nextTop = activeRect.top - sidebarRect.top + (activeRect.height - indicatorHeight) / 2;
+
+        sidebarIndicator.style.transform = `translateY(${Math.max(nextTop, 0)}px)`;
+        sidebarIndicator.style.opacity = '1';
+    };
+
+    const scheduleSidebarIndicatorUpdate = () => {
+        requestAnimationFrame(updateSidebarIndicator);
+    };
 
     // Check for electron bridge
     if (!window.electron) {
@@ -395,8 +422,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const container = input.closest('.number-input-container');
         if (!container) return;
 
-        const decrement = container.querySelector('.number-stepper-button.decrement');
-        const increment = container.querySelector('.number-stepper-button.increment');
+        const decrement = container.querySelector('.number-stepper-btn.decrement');
+        const increment = container.querySelector('.number-stepper-btn.increment');
         if (!decrement || !increment) return;
 
         const currentValue = input.value === '' ? getNumberDefaultValue(input) : parseFloat(input.value);
@@ -411,7 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function setupNumberSteppers() {
-        document.querySelectorAll('.number-stepper-button').forEach((button) => {
+        document.querySelectorAll('.number-stepper-btn').forEach((button) => {
             button.addEventListener('click', () => {
                 const inputId = button.dataset.inputId;
                 if (!inputId) return;
@@ -575,6 +602,7 @@ document.addEventListener('DOMContentLoaded', () => {
             resetNav();
             navVideo.classList.add('active');
             showView(dropZone);
+            scheduleSidebarIndicatorUpdate();
         });
     }
 
@@ -583,6 +611,7 @@ document.addEventListener('DOMContentLoaded', () => {
             resetNav();
             navFolder.classList.add('active');
             showView(folderDropZone);
+            scheduleSidebarIndicatorUpdate();
         });
     }
 
@@ -592,6 +621,7 @@ document.addEventListener('DOMContentLoaded', () => {
             navQueue.classList.add('active');
             showView(queueView);
             renderQueue();
+            scheduleSidebarIndicatorUpdate();
         });
     }
 
@@ -600,6 +630,7 @@ document.addEventListener('DOMContentLoaded', () => {
             resetNav();
             navSettings.classList.add('active');
             showView(settingsView);
+            scheduleSidebarIndicatorUpdate();
         });
     }
 
@@ -609,6 +640,7 @@ document.addEventListener('DOMContentLoaded', () => {
             resetNav();
             navTrim.classList.add('active');
             showView(trimDropZone);
+            scheduleSidebarIndicatorUpdate();
         });
     }
 
@@ -618,6 +650,7 @@ document.addEventListener('DOMContentLoaded', () => {
             resetNav();
             navExtractAudio.classList.add('active');
             showView(extractAudioDropZone);
+            scheduleSidebarIndicatorUpdate();
         });
     }
 
@@ -634,7 +667,15 @@ document.addEventListener('DOMContentLoaded', () => {
             resetNav();
             navInspector.classList.add('active');
             showView(get('inspector-drop-zone'));
+            scheduleSidebarIndicatorUpdate();
         });
+    }
+
+    if (sidebar) {
+        const observer = new MutationObserver(() => scheduleSidebarIndicatorUpdate());
+        observer.observe(sidebar, { attributes: true, subtree: true, attributeFilter: ['class'] });
+        window.addEventListener('resize', scheduleSidebarIndicatorUpdate);
+        scheduleSidebarIndicatorUpdate();
     }
 
     // Cancel encoding button
@@ -803,7 +844,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const { handleExtractFileSelection, updateExtractBitrateVisibility } = await loadExtractAudio();
             handleExtractFileSelection(item.options.input, {
                 format: item.options.format,
-                bitrate: item.options.bitrate
+                bitrate: item.options.bitrate,
+                sampleRate: item.options.sampleRate,
+                mp3Mode: item.options.mp3Mode,
+                mp3Quality: item.options.mp3Quality,
+                flacLevel: item.options.flacLevel
             }).then(() => {
                 updateExtractBitrateVisibility();
                 const extractAddQueueBtn = get('extract-add-queue-btn');

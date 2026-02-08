@@ -1,7 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electron', {
-    selectFile: () => ipcRenderer.invoke('select-file'),
+    selectFile: (options = {}) => ipcRenderer.invoke('select-file', options),
     selectFolder: () => ipcRenderer.invoke('select-folder'),
     listFiles: (folderPath) => ipcRenderer.invoke('list-files', folderPath),
     getMetadata: (filePath) => ipcRenderer.invoke('get-metadata', filePath),

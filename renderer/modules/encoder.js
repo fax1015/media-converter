@@ -1,6 +1,6 @@
 // Video Encoder Module
 
-import { get, showPopup, showConfirm, showView, renderAudioTracks, renderSubtitleTracks, resetNav } from './ui-utils.js';
+import { get, showPopup, showConfirm, showView, renderAudioTracks, renderSubtitleTracks, resetNav, animateAutoHeight } from './ui-utils.js';
 import * as state from './state.js';
 import { addToQueue, updateQueueUI, formatPresetName } from './queue.js';
 import { BUILT_IN_PRESETS } from '../constants.js';
@@ -793,6 +793,15 @@ export function setupEncoderHandlers() {
         });
     }
 
+    const toggleAdvancedBtn = get('toggle-advanced-btn');
+    const advancedPanel = get('advanced-panel');
+    if (toggleAdvancedBtn && advancedPanel) {
+        toggleAdvancedBtn.addEventListener('click', () => {
+            const isHidden = advancedPanel.classList.toggle('hidden');
+            toggleAdvancedBtn.setAttribute('aria-expanded', String(!isHidden));
+        });
+    }
+
     // Settings UI Handlers
     const encoderView = get('file-dashboard');
     if (encoderView) {
@@ -806,13 +815,16 @@ export function setupEncoderHandlers() {
                 const crfContainer = get('crf-container');
                 const bitrateContainer = get('bitrate-container');
                 if (crfContainer && bitrateContainer) {
-                    if (e.target.value === 'crf') {
-                        crfContainer.classList.remove('hidden');
-                        bitrateContainer.classList.add('hidden');
-                    } else {
-                        crfContainer.classList.add('hidden');
-                        bitrateContainer.classList.remove('hidden');
-                    }
+                    const panel = e.target.closest('.settings-panel');
+                    animateAutoHeight(panel, () => {
+                        if (e.target.value === 'crf') {
+                            crfContainer.classList.remove('hidden');
+                            bitrateContainer.classList.add('hidden');
+                        } else {
+                            crfContainer.classList.add('hidden');
+                            bitrateContainer.classList.remove('hidden');
+                        }
+                    });
                     updatePresetStatus();
                 }
                 return;
@@ -847,11 +859,14 @@ export function setupEncoderHandlers() {
     if (settingsTabs) {
         const tabButtons = settingsTabs.querySelectorAll('.tab-btn');
         const tabContents = get('file-dashboard')?.querySelectorAll('.tab-content') || [];
+        const tabContainer = settingsTabs.closest('.settings-panel');
         tabButtons.forEach(btn => {
             btn.addEventListener('click', () => {
                 const tabName = btn.dataset.tab;
-                tabButtons.forEach(b => b.classList.toggle('active', b === btn));
-                tabContents.forEach(c => c.classList.toggle('hidden', c.id !== `tab-${tabName}`));
+                animateAutoHeight(tabContainer, () => {
+                    tabButtons.forEach(b => b.classList.toggle('active', b === btn));
+                    tabContents.forEach(c => c.classList.toggle('hidden', c.id !== `tab-${tabName}`));
+                });
             });
         });
     }
@@ -933,8 +948,8 @@ export function setupEncoderHandlers() {
                     <input id="new-preset-input" type="text" placeholder="Preset name" autocomplete="off" />
                 </div>
                 <div class="new-preset-actions">
-                    <button id="new-preset-save" type="button">Save</button>
-                    <button id="new-preset-cancel" type="button">Cancel</button>
+                    <button id="new-preset-save" type="button" class="primary-btn small">Save</button>
+                    <button id="new-preset-cancel" type="button" class="secondary-btn small">Cancel</button>
                 </div>
             `;
 

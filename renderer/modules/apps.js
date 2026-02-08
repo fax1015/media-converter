@@ -8,7 +8,7 @@ export function setupAppsHandlers() {
     const appsDashboard = get('apps-dashboard');
     const navApps = get('nav-apps');
 
-    syncToolNavIcons();
+    syncToolIcons();
     renderSidebarApps();
     renderAppsGrid();
 
@@ -25,12 +25,27 @@ export function setupAppsHandlers() {
     }
 }
 
+function syncToolIcons() {
+    syncToolNavIcons();
+    syncToolDropZoneIcons();
+}
+
 function syncToolNavIcons() {
     TOOL_REGISTRY.forEach(tool => {
         if (!tool.navId || !tool.icon) return;
         const nav = get(tool.navId);
         if (!nav) return;
         nav.innerHTML = tool.icon;
+    });
+}
+
+function syncToolDropZoneIcons() {
+    document.querySelectorAll('.icon-container[data-tool-id]').forEach(container => {
+        const toolId = container.dataset.toolId;
+        if (!toolId) return;
+        const tool = TOOL_REGISTRY.find(entry => entry.id === toolId);
+        if (!tool || !tool.icon) return;
+        container.innerHTML = tool.icon;
     });
 }
 
